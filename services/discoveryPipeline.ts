@@ -99,9 +99,7 @@ const log = {
 
 /**
  * Runs steps 2–6 for a single discovered URL.
- * Returns null only when the URL itself is completely unusable.
- * All other errors are logged and handled gracefully — the pipeline
- * continues to the next URL rather than aborting the entire batch.
+ * Returns null if the URL itself is invalid, fails to load, or has empty content.
  */
 async function processUrl(
   discoveredUrl: string,
@@ -117,11 +115,16 @@ async function processUrl(
   const crawl = await crawlWebsite(discoveredUrl);
 
   if (crawl.error) {
-    // Non-fatal — fall back to data from the discovery step
-    log.warn(`  Crawl failed (${crawl.error}) — using discovery metadata`);
-  } else {
-    log.ok(`  Crawled — title: "${crawl.title}"`);
+    log.warn(`  Crawl failed (${crawl.error}) — skipping`);
+    return null;
   }
+
+  if (!crawl.homepageText || !crawl.homepageText.trim()) {
+    log.warn(`  Empty content returned — skipping`);
+    return null;
+  }
+
+  log.ok(`  Crawled — title: "${crawl.title}"`);
 
   // ── Step 3: Free listing detection (already in CrawlResult) ───────────────
   const freeListing = crawl.freeListing;
@@ -134,8 +137,6 @@ async function processUrl(
   }
 
   // ── Step 4: Classify industry ──────────────────────────────────────────────
-  // Combine all available text sources for best classification accuracy.
-  // Falls back to discoveredTitle when the crawl failed.
   const classificationText = [
     crawl.title       || discoveredTitle,
     crawl.description || "",
@@ -151,10 +152,6 @@ async function processUrl(
   );
 
   // ── Step 5: Determine DA category ─────────────────────────────────────────
-  // TODO [MOZ-1]: replace placeholder values with real Moz API data:
-  //   const mozData   = await getMozMetrics(crawl.url || discoveredUrl);
-  //   const domainAuthority = mozData.domainAuthority;
-  //   const spamScore       = mozData.spamScore;
   const domainAuthority = 0;
   const spamScore       = 0;
   const daCategoryStr   = categorizeDa(domainAuthority);
@@ -173,7 +170,6 @@ async function processUrl(
     active:          true,
   };
 
-  // Placeholder id used when DB is not yet connected or dryRun is enabled
   let savedId = `pending-${index}`;
 
   if (!dryRun) {
@@ -183,8 +179,6 @@ async function processUrl(
       savedId = saved.id;
       log.ok(`  Saved — id: ${savedId}`);
     } catch (err) {
-      // DB not connected yet or constraint violation — log and continue.
-      // The result is still returned to the caller with a pending id.
       log.warn(
         `  DB save skipped — ${err instanceof Error ? err.message : "unknown error"}`
       );
@@ -215,16 +209,6 @@ async function processUrl(
  * @param options - Optional dry-run control
  *
  * @returns PipelineReport — never throws; per-URL errors are captured internally
- *
- * @example
- *   const report = await runDiscoveryPipeline("business listing sites");
- *   console.log(report.results);     // PipelineResult[]
- *   console.log(report.discovered);  // 4
- *   console.log(report.saved);       // 4 (or 0 if DB not connected)
- *   console.log(report.failed);      // 0
- *
- *   // Dry run — process without saving
- *   const preview = await runDiscoveryPipeline("healthcare directories", { dryRun: true });
  */
 export async function runDiscoveryPipeline(
   keyword: string,
@@ -277,35 +261,29 @@ export async function runDiscoveryPipeline(
     };
   }
 
-  // ── Steps 2–6: Process each URL sequentially ───────────────────────────────
-  // Sequential processing respects Playwright's shared browser pool.
-  // For parallel processing, replace this loop with crawlBatch() for Step 2,
-  // then run Steps 3–6 in parallel over the batch results.
+  // ── Steps 2–6: Process URLs in parallel using Promise.all ──────────────────
   log.info(
-    `Steps 2–6 — Processing ${discovery.results.length} URL(s) sequentially…`
+    `Steps 2–6 — Processing ${discovery.results.length} URL(s) in parallel…`
   );
+
+  const promises = discovery.results.map((item, i) =>
+    processUrl(item.url, item.title, i + 1, discovery.results.length, dryRun)
+  );
+
+  const rawResults = await Promise.all(promises);
 
   const results: PipelineResult[] = [];
   let saved  = 0;
   let failed = 0;
 
-  for (let i = 0; i < discovery.results.length; i++) {
-    const { url, title } = discovery.results[i];
-
-    const result = await processUrl(
-      url,
-      title,
-      i + 1,
-      discovery.results.length,
-      dryRun
-    );
-
+  for (const result of rawResults) {
     if (result !== null) {
       results.push(result);
-      if (!result.id.startsWith("pending-")) saved++;
+      if (!result.id.startsWith("pending-")) {
+        saved++;
+      }
     } else {
       failed++;
-      log.error(`  URL ${i + 1} returned null — skipped`);
     }
   }
 

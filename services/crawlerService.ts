@@ -14,7 +14,7 @@ export interface CrawlResult {
   links: string[];
   freeListing: boolean;
   detectedKeywords: string[];
-  // Optional parameters for backward compatibility
+  // Optional parameters for backward compatibility with discovery pipeline
   url?: string;
   crawledAt?: Date;
   error?: string;
@@ -33,6 +33,8 @@ const LISTING_SIGNALS: Record<string, RegExp[]> = {
   "Free Listing":          [/free\s+listing/i,                    /list\s+(?:for\s+)?free/i, /free\s+submission/i],
   "Create Profile":        [/create\s+(?:a\s+|your\s+)?(?:business\s+)?profile/i, /set\s+up\s+(?:your\s+)?profile/i],
   "Register Business":     [/register\s+(?:your\s+)?business/i,   /register\s+(?:a\s+)?company/i],
+  "Add Company":           [/add\s+(?:your\s+)?company/i,         /add\s+(?:a\s+)?company/i],
+  "Submit Business":       [/submit\s+(?:your\s+)?business/i,     /submit\s+(?:a\s+)?business/i],
 };
 
 export function detectKeywords(text: string): string[] {
