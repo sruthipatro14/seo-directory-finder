@@ -1,37 +1,48 @@
 "use server";
 
-import { discoverWebsites } from "@/services/discoveryService";
-import { saveSearch } from "@/services/searchHistoryService";
-import { Website } from "@/types/website";
+import { runDiscoveryPipeline, PipelineResult } from "@/services/discoveryPipeline";
+import { saveSearch }                            from "@/services/searchHistoryService";
+import { Website }                               from "@/types/website";
 
-function mapToWebsite(
-  result: { url: string; title: string },
-  index: number
-): Website {
+/** Maps a PipelineResult to the UI Website interface. */
+function toWebsite(r: PipelineResult): Website {
   return {
-    id: `discovered-${index}`,
-    name: result.title,
-    url: result.url,
-    domainAuthority: 0,
-    spamScore: 0,
-    freeListing: false,
-    industry: "General Business",
-    daCategory: "Low",
-    active: true,
+    id:              r.id,
+    name:            r.name,
+    url:             r.url,
+    domainAuthority: r.domainAuthority,
+    spamScore:       r.spamScore,
+    freeListing:     r.freeListing,
+    industry:        r.industry,
+    daCategory:      r.daCategory,
+    active:          r.active,
   };
 }
 
+/**
+ * Server Action called by HeroSearch.
+ * Saves the search keyword, runs the full discovery pipeline, and
+ * returns processed websites alongside summary stats.
+ */
 export async function searchWebsites(keyword: string): Promise<{
-  websites: Website[];
-  error?: string;
+  websites:   Website[];
+  saved:      number;
+  discovered: number;
+  error?:     string;
 }> {
   try {
-    await saveSearch(keyword);
-    const response = await discoverWebsites(keyword);
-    const websites = response.results.map(mapToWebsite);
-    return { websites };
+    // Persist keyword to SearchHistory (fails gracefully if DB is down)
+    await saveSearch(keyword).catch(() => null);
+
+    const report = await runDiscoveryPipeline(keyword);
+
+    return {
+      websites:   report.results.map(toWebsite),
+      saved:      report.saved,
+      discovered: report.discovered,
+    };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Discovery failed.";
-    return { websites: [], error: message };
+    const message = err instanceof Error ? err.message : "Pipeline failed.";
+    return { websites: [], saved: 0, discovered: 0, error: message };
   }
 }
