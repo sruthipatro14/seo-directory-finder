@@ -1,32 +1,10 @@
 import HomepageClient from "@/components/HomepageClient";
-import { Website } from "@/types/website";
+import { searchWebsites } from "@/services/websiteService";
 
-const initialWebsites: Website[] = [
-  {
-    id: "1",
-    name: "Justdial",
-    url: "https://justdial.com",
-    domainAuthority: 88,
-    spamScore: 2,
-    freeListing: true,
-    industry: "General Business",
-    daCategory: "Excellent",
-    active: true,
-  },
-  {
-    id: "2",
-    name: "Sulekha",
-    url: "https://sulekha.com",
-    domainAuthority: 75,
-    spamScore: 1,
-    freeListing: true,
-    industry: "Services",
-    daCategory: "Excellent",
-    active: true,
-  },
-];
+export default async function Home() {
+  // Fetch initial websites on the server
+  const initialWebsites = await searchWebsites("");
 
-export default function Home() {
   return (
     <main className="min-h-screen bg-white dark:bg-black">
       {/* Navbar */}

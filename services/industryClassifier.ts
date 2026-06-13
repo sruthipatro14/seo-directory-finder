@@ -37,8 +37,8 @@ export const INDUSTRIES: Industry[] = [
 
 export interface ClassificationResult {
   industry: Industry;
-  /** Confidence level based on the number of matched keywords. */
-  confidence: "high" | "medium" | "low";
+  /** Numeric confidence score (0.0 to 1.0). */
+  confidence: number;
   /** Which keywords triggered the classification (empty for OpenAI provider). */
   matchedKeywords: string[];
   /** Which provider produced this result. */
@@ -165,15 +165,16 @@ class KeywordProvider implements ClassificationProvider {
       }
     }
 
-    // Confidence thresholds — tune as needed
-    const confidence: ClassificationResult["confidence"] =
-      bestScore >= 4 ? "high"   :
-      bestScore >= 2 ? "medium" :
-                       "low";
+    // Calculate numeric confidence score (0 to 1)
+    // Heuristic: baseline of 0.4 for first match, +0.1 per match, capped at 0.95.
+    // If no matches, confidence is 0.2 for the "General Business" fallback.
+    const confidence = bestScore === 0 
+      ? 0.2 
+      : Math.min(0.4 + (bestScore * 0.1), 0.95);
 
     return {
       industry:        bestIndustry,
-      confidence,
+      confidence:      Number(confidence.toFixed(2)),
       matchedKeywords: bestMatches,
       provider:        this.name,
     };
@@ -204,7 +205,7 @@ class KeywordProvider implements ClassificationProvider {
  *       Respond with a JSON object:
  *       {
  *         "industry": "<one of the listed industries>",
- *         "confidence": "high" | "medium" | "low",
+ *         "confidence": 0.0 to 1.0,
  *         "reason": "<one sentence>"
  *       }
  *     `;
@@ -226,7 +227,7 @@ class KeywordProvider implements ClassificationProvider {
  *
  *     return {
  *       industry,
- *       confidence:      parsed.confidence ?? "low",
+ *       confidence:      typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
  *       matchedKeywords: [],  // LLMs don't return discrete keyword matches
  *       provider:        this.name,
  *     };
@@ -264,7 +265,7 @@ export async function classifyIndustry(
   if (!text.trim()) {
     return {
       industry:        "General Business",
-      confidence:      "low",
+      confidence:      0.1,
       matchedKeywords: [],
       provider:        provider.name,
     };

@@ -8,21 +8,16 @@
 //     ├── Step 2: crawlWebsite()         — visit each URL with Playwright
 //     ├── Step 3: (from crawl result)    — detect free listing signals
 //     ├── Step 4: classifyIndustry()     — keyword or OpenAI classification
-//     ├── Step 5: categorizeDa()         — map DA number → Low/Average/Excellent
+//     ├── Step 5: getMozMetrics()        — fetch real DA and spam scores
+//     ├── Step 6: categorizeDa()         — map DA number → Low/Average/Excellent
 //     ├── Step 6: createWebsite()        — persist to database (skipped if DB down)
 //     └── Return: PipelineReport
-//
-// TODO [MOZ-1]: Integrate Moz API to populate real DA and spam scores.
-//   Docs: https://moz.com/products/api
-//   Replace the placeholder values (domainAuthority: 0, spamScore: 0) with:
-//     const mozData = await getMozMetrics(url);
-//     domainAuthority = mozData.domainAuthority;
-//     spamScore       = mozData.spamScore;
 
 import { discoverWebsites }           from "@/services/discoveryService";
 import { crawlWebsite, closeBrowser } from "@/services/crawlerService";
 import { classifyIndustry }           from "@/services/industryClassifier";
-import { createWebsite }              from "@/services/websiteService";
+import { saveDiscoveredWebsite }      from "@/services/websiteService";
+import { getMozMetrics }              from "@/services/mozService";
 import { DaCategory }                 from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -73,11 +68,8 @@ export interface PipelineReport {
  *   0–20   → Low
  *   21–50  → Average
  *   51–100 → Excellent
- *
- * TODO [MOZ-2]: replace the placeholder DA (0) with a real Moz value
- *              before this function is called.
  */
-function categorizeDa(da: number): "Low" | "Average" | "Excellent" {
+export function categorizeDa(da: number): "Low" | "Average" | "Excellent" {
   if (da <= 20) return "Low";
   if (da <= 50) return "Average";
   return "Excellent";
@@ -111,7 +103,7 @@ async function processUrl(
   log.step(index, total, discoveredUrl);
 
   // ── Step 2: Crawl the website with Playwright ──────────────────────────────
-  log.info(`  Crawling ${discoveredUrl}…`);
+  log.info(`  Websites crawled — ${discoveredUrl}…`);
   const crawl = await crawlWebsite(discoveredUrl);
 
   if (crawl.error) {
@@ -140,6 +132,7 @@ async function processUrl(
   const classificationText = [
     crawl.title       || discoveredTitle,
     crawl.description || "",
+    crawl.homepageText || "",
     discoveredUrl,
   ].join(" ");
 
@@ -151,11 +144,23 @@ async function processUrl(
     `${classification.matchedKeywords.length} keyword matches)`
   );
 
-  // ── Step 5: Determine DA category ─────────────────────────────────────────
-  const domainAuthority = 0;
-  const spamScore       = 0;
-  const daCategoryStr   = categorizeDa(domainAuthority);
+  // ── Step 5: Get Moz Metrics ──────────────────────────────────────────────
+  let domainAuthority = 0;
+  let spamScore = 0;
 
+  try {
+    log.info(`  Fetching Moz metrics…`);
+    const mozData = await getMozMetrics(discoveredUrl);
+    domainAuthority = mozData.domainAuthority;
+    spamScore = mozData.spamScore;
+    log.ok(`  Moz metrics retrieved — DA: ${domainAuthority}, Spam: ${spamScore}`);
+  } catch (err) {
+    log.warn(
+      `  Moz metrics failed — defaulting to 0 (${err instanceof Error ? err.message : "unknown error"})`
+    );
+  }
+
+  const daCategoryStr   = categorizeDa(domainAuthority);
   log.info(`  DA: ${domainAuthority} → category: ${daCategoryStr}`);
 
   // ── Step 6: Save to database ───────────────────────────────────────────────
@@ -174,10 +179,10 @@ async function processUrl(
 
   if (!dryRun) {
     try {
-      log.info(`  Saving to database…`);
-      const saved = await createWebsite(websiteInput);
+      console.log("Saving website:", websiteInput.url);
+      const saved = await saveDiscoveredWebsite(websiteInput);
       savedId = saved.id;
-      log.ok(`  Saved — id: ${savedId}`);
+      console.log("Saved website:", savedId);
     } catch (err) {
       log.warn(
         `  DB save skipped — ${err instanceof Error ? err.message : "unknown error"}`
@@ -218,19 +223,18 @@ export async function runDiscoveryPipeline(
   const startedAt = new Date();
 
   log.info(`══════════════════════════════════════════`);
-  log.info(`Starting pipeline  keyword: "${keyword}"`);
+  log.info(`Search started — keyword: "${keyword}"`);
   if (dryRun) log.info(`Dry run — database writes disabled`);
   log.info(`══════════════════════════════════════════`);
 
   // ── Step 1: Discover website URLs ──────────────────────────────────────────
   log.info(`Step 1 — Discovering websites…`);
 
+  console.log("Search started:", keyword);
   let discovery;
   try {
     discovery = await discoverWebsites(keyword);
-    log.ok(
-      `Step 1 done — ${discovery.results.length} URL(s) via "${discovery.provider}" provider`
-    );
+    log.ok(`Websites discovered — ${discovery.results.length} URL(s)`);
   } catch (err) {
     log.error(
       `Step 1 failed — ${err instanceof Error ? err.message : "unknown error"}`
@@ -260,17 +264,30 @@ export async function runDiscoveryPipeline(
       completedAt: new Date(),
     };
   }
+  console.log("Discovered websites:", discovery.results.length);
 
   // ── Steps 2–6: Process URLs in parallel using Promise.all ──────────────────
   log.info(
     `Steps 2–6 — Processing ${discovery.results.length} URL(s) in parallel…`
   );
 
-  const promises = discovery.results.map((item, i) =>
-    processUrl(item.url, item.title, i + 1, discovery.results.length, dryRun)
-  );
+  let rawResults: (PipelineResult | null)[] = [];
 
-  const rawResults = await Promise.all(promises);
+  try {
+    const promises = discovery.results.map((item, i) =>
+      processUrl(item.url, item.title, i + 1, discovery.results.length, dryRun)
+    );
+    rawResults = await Promise.all(promises);
+  } finally {
+    // ── Cleanup: close the shared Playwright browser ───────────────────────────
+    await closeBrowser();
+    log.ok(`Browser closed`);
+  }
+
+  const successful = rawResults.filter(r => r !== null);
+  // Since Crawl, Classify, and Save happen per-URL in processUrl:
+  console.log("Crawled websites:", successful.length);
+  console.log("Classified websites:", successful.length);
 
   const results: PipelineResult[] = [];
   let saved  = 0;
@@ -287,21 +304,12 @@ export async function runDiscoveryPipeline(
     }
   }
 
-  // ── Cleanup: close the shared Playwright browser ───────────────────────────
-  await closeBrowser();
-  log.ok(`Browser closed`);
-
   const completedAt = new Date();
   const durationMs  = completedAt.getTime() - startedAt.getTime();
 
   log.info(`══════════════════════════════════════════`);
-  log.info(
-    `Pipeline complete in ${durationMs}ms — ` +
-    `discovered: ${discovery.results.length}, ` +
-    `processed: ${results.length}, ` +
-    `saved: ${saved}, ` +
-    `failed: ${failed}`
-  );
+  log.info(`Results returned — ${results.length} websites`);
+  log.info(`Pipeline complete in ${durationMs}ms`);
   log.info(`══════════════════════════════════════════`);
 
   return {

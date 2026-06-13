@@ -14,7 +14,7 @@ export interface CrawlResult {
   links: string[];
   freeListing: boolean;
   detectedKeywords: string[];
-  // Optional parameters for backward compatibility with discovery pipeline
+  // Metadata for pipeline compatibility
   url?: string;
   crawledAt?: Date;
   error?: string;
@@ -47,7 +47,7 @@ export function detectKeywords(text: string): string[] {
   return matched;
 }
 
-// ─── Content extractor ────────────────────────────────────────────────────────
+// ─── Content extractors ───────────────────────────────────────────────────────
 
 async function extractSearchableText(
   page: import("playwright").Page
@@ -77,7 +77,7 @@ async function extractSearchableText(
       .catch(() => "")
   );
 
-  // 4. aria-label attributes across the whole page
+  // 4. aria-label attributes
   parts.push(
     await page
       .$$eval("[aria-label]", (els) =>
@@ -91,6 +91,9 @@ async function extractSearchableText(
 
 // ─── Core crawler ─────────────────────────────────────────────────────────────
 
+/**
+ * Visits a URL using Playwright and extracts SEO metadata and listing signals.
+ */
 export async function crawlWebsite(
   url: string,
   options: CrawlOptions = {}
@@ -98,12 +101,9 @@ export async function crawlWebsite(
   const timeoutMs = options.timeoutMs ?? defaultCrawlerConfig.timeoutMs;
   const userAgent = options.userAgent ?? defaultCrawlerConfig.userAgent;
 
-  // Validate URL before any browser activity
+  // Basic URL validation
   try {
-    const parsed = new URL(url);
-    if (!["http:", "https:"].includes(parsed.protocol)) {
-      throw new Error(`Unsupported protocol: "${parsed.protocol}"`);
-    }
+    new URL(url);
   } catch (err) {
     return {
       title:            "",
@@ -114,7 +114,7 @@ export async function crawlWebsite(
       detectedKeywords: [],
       url,
       crawledAt:        new Date(),
-      error:            err instanceof Error ? err.message : `Invalid URL: "${url}"`,
+      error:            "Invalid URL format",
     };
   }
 
@@ -130,13 +130,16 @@ export async function crawlWebsite(
 
     const page = await context.newPage();
 
+    // Navigate to the site
     await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout:   timeoutMs,
     });
 
+    // 1. Extract Page Title
     const title = await page.title();
 
+    // 2. Extract Meta Description
     const description = await page
       .$eval(
         'meta[name="description"]',
@@ -144,15 +147,14 @@ export async function crawlWebsite(
       )
       .catch(() => "");
 
-    // Extract Homepage visible text
+    // 3. Extract Homepage visible text
     const homepageText = await page.innerText("body").catch(() => "");
 
-    // Extract navigation / anchor links
+    // 4. Extract and resolve Navigation Links
     const extractedLinks = await page.$$eval("a", (els) => 
       els.map((el) => el.getAttribute("href") ?? "")
     ).catch(() => [] as string[]);
 
-    // Resolve absolute links and filter out non-HTTP links
     const resolvedLinks = Array.from(new Set(
       extractedLinks
         .map((href) => {
@@ -162,10 +164,10 @@ export async function crawlWebsite(
             return "";
           }
         })
-        .filter((resolvedUrl) => resolvedUrl.startsWith("http://") || resolvedUrl.startsWith("https://"))
+        .filter((resolvedUrl) => resolvedUrl.startsWith("http"))
     ));
 
-    // Scan for keywords on all searchable text
+    // 5. Detect Listing Signals
     const searchableText = await extractSearchableText(page);
     const detectedKeywords = detectKeywords(searchableText);
     const freeListing = detectedKeywords.length > 0;
@@ -195,32 +197,6 @@ export async function crawlWebsite(
   } finally {
     await context?.close();
   }
-}
-
-// ─── Batch crawler ────────────────────────────────────────────────────────────
-
-export async function crawlBatch(
-  urls: string[],
-  options: CrawlOptions = {},
-  concurrency = 3
-): Promise<CrawlResult[]> {
-  const results: CrawlResult[] = [];
-  const queue = [...urls];
-
-  async function worker(): Promise<void> {
-    while (queue.length > 0) {
-      const url = queue.shift();
-      if (!url) break;
-      results.push(await crawlWebsite(url, options));
-    }
-  }
-
-  await getBrowser();
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, urls.length) }, worker)
-  );
-
-  return results;
 }
 
 export { closeBrowser };

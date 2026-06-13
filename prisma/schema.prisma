@@ -4,22 +4,30 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DaCategory {
+  Low
+  Average
+  Excellent
 }
 
 model Website {
   id              String     @id @default(cuid())
   name            String
   url             String     @unique
-  domainAuthority Int
-  spamScore       Int
+  domainAuthority Int        @default(0)
+  spamScore       Int        @default(0)
   freeListing     Boolean    @default(false)
   industry        String
-  daCategory      DaCategory
+  daCategory      DaCategory @default(Low)
   active          Boolean    @default(true)
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
-  @@map("websites")
+  @@index([industry])
+  @@index([daCategory])
 }
 
 model SearchHistory {
@@ -27,11 +35,5 @@ model SearchHistory {
   keyword   String
   createdAt DateTime @default(now())
 
-  @@map("search_history")
-}
-
-enum DaCategory {
-  Low
-  Average
-  Excellent
+  @@index([keyword])
 }

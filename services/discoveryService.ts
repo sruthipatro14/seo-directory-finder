@@ -7,7 +7,7 @@
 //           ├── MockProvider       (active now)
 //           ├── GoogleProvider     (future — Google Custom Search API)
 //           ├── BingProvider       (future — Bing Web Search API)
-//           └── PlaywrightProvider (future — headless browser scraping)
+//           └── SerpApiProvider    (future — aggregated search results)
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,20 +58,32 @@ export function generateQueries(keyword: string): string[] {
 const MOCK_DATABASE: Record<string, DiscoveryResult[]> = {
   default: [
     {
-      url: "https://yelp.com",
-      title: "Yelp — Business Directory",
+      url: "https://www.yelp.com",
+      title: "Yelp",
       description: "Find local businesses, read reviews, and discover great places.",
       sourceQuery: "business listing sites",
     },
     {
-      url: "https://yellowpages.com",
+      url: "https://www.crunchbase.com",
+      title: "Crunchbase",
+      description: "Discover innovative companies and the people behind them.",
+      sourceQuery: "business listing sites",
+    },
+    {
+      url: "https://www.yellowpages.com",
       title: "Yellow Pages",
       description: "Local business directory with listings across all industries.",
       sourceQuery: "business listing sites free submission",
     },
     {
-      url: "https://manta.com",
-      title: "Manta — Small Business Directory",
+      url: "https://www.hotfrog.com",
+      title: "Hotfrog",
+      description: "Helping you find the right customers for your business.",
+      sourceQuery: "business listing sites",
+    },
+    {
+      url: "https://www.manta.com",
+      title: "Manta",
       description: "Discover and connect with local small businesses.",
       sourceQuery: "best business listing sites",
     },
@@ -80,6 +92,36 @@ const MOCK_DATABASE: Record<string, DiscoveryResult[]> = {
       title: "Foursquare — Places & Reviews",
       description: "Explore places and read tips from the community.",
       sourceQuery: "top business listing sites websites",
+    },
+    {
+      url: "https://citysearch.com",
+      title: "Citysearch — Local Guide",
+      description: "Guide to the best restaurants, entertainment and nightlife.",
+      sourceQuery: "business listing sites free submission",
+    },
+    {
+      url: "https://local.com",
+      title: "Local.com",
+      description: "Search for local businesses, events, and more.",
+      sourceQuery: "best business listing sites",
+    },
+    {
+      url: "https://brownbook.net",
+      title: "Brownbook.net — The Free Local Directory",
+      description: "Add a listing and get found by local customers.",
+      sourceQuery: "top business listing sites websites",
+    },
+    {
+      url: "https://chamberofcommerce.com",
+      title: "Chamber of Commerce",
+      description: "The world's largest business directory.",
+      sourceQuery: "high DA business listing sites",
+    },
+    {
+      url: "https://ezlocal.com",
+      title: "EZLocal — Local SEO & Listings",
+      description: "Manage your local business listings and reputation.",
+      sourceQuery: "business listing sites directory list",
     },
   ],
   healthcare: [
@@ -264,15 +306,7 @@ class MockProvider implements DiscoveryProvider {
 
     // Use the first query to resolve the keyword bucket
     const key = resolveMockKey(queries[0] ?? "");
-    const results = MOCK_DATABASE[key] ?? MOCK_DATABASE.default;
-
-    // Deduplicate by URL
-    const seen = new Set<string>();
-    return results.filter((r) => {
-      if (seen.has(r.url)) return false;
-      seen.add(r.url);
-      return true;
-    });
+    return MOCK_DATABASE[key] ?? MOCK_DATABASE.default;
   }
 }
 
@@ -328,34 +362,14 @@ class MockProvider implements DiscoveryProvider {
  */
 
 /**
- * TODO: Implement using Playwright for headless browser scraping.
- * Install: npm install playwright
- *
- * class PlaywrightProvider implements DiscoveryProvider {
- *   readonly name = "playwright";
- *
- *   async search(queries: string[]): Promise<DiscoveryResult[]> {
- *     const { chromium } = await import("playwright");
- *     const browser = await chromium.launch();
- *     const results: DiscoveryResult[] = [];
- *     for (const query of queries) {
- *       const page = await browser.newPage();
- *       await page.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}`);
- *       const items = await page.$$eval("div.g", (els) =>
- *         els.map((el) => ({
- *           url: el.querySelector("a")?.href ?? "",
- *           title: el.querySelector("h3")?.textContent ?? "",
- *           description: el.querySelector(".VwiC3b")?.textContent ?? "",
- *         }))
- *       );
- *       results.push(...items.map((i) => ({ ...i, sourceQuery: query })));
- *       await page.close();
- *     }
- *     await browser.close();
- *     return results;
- *   }
- * }
+ * TODO: Implement using SerpApi.
+ * Docs: https://serpapi.com/search-api
  */
+class SerpApiProvider implements DiscoveryProvider {
+  readonly name = "serpapi";
+  constructor(private readonly apiKey: string) {}
+  async search(queries: string[]): Promise<DiscoveryResult[]> { return []; }
+}
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -383,7 +397,20 @@ export async function discoverWebsites(
   }
 
   const queries = generateQueries(keyword);
-  const results = await provider.search(queries);
+  const rawResults = await provider.search(queries);
+
+  // Remove duplicates and invalid URLs
+  const seen = new Set<string>();
+  const results = rawResults.filter((r) => {
+    try {
+      const normalized = new URL(r.url).href.toLowerCase().replace(/\/$/, "");
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 
   return {
     keyword,
