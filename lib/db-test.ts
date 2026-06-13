@@ -12,7 +12,7 @@ async function testConnection() {
     const result = await prisma.$queryRaw`SELECT NOW() as current_time`;
     
     console.log("✅ Connection successful!");
-    console.log("Current Database Time:", (result as any)[0].current_time);
+    console.log("Current Database Time:", (result as Array<{ current_time: Date }>)[0].current_time);
   } catch (error) {
     console.error("❌ Database connection failed!");
     console.error(error);

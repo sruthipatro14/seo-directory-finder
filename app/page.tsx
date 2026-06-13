@@ -1,9 +1,19 @@
 import HomepageClient from "@/components/HomepageClient";
 import { searchWebsites } from "@/services/websiteService";
+import type { Website } from "@prisma/client";
 
 export default async function Home() {
-  // Fetch initial websites on the server
-  const initialWebsites = await searchWebsites("");
+  // Fetch initial websites on the server. If the DB or Prisma client fails
+  // (e.g. missing DATABASE_URL), don't throw — fall back to empty list so
+  // the route can render and avoid a 500/404 during server rendering.
+  let initialWebsites: Website[] = [];
+  try {
+    initialWebsites = await searchWebsites("");
+  } catch (err) {
+    // Log and continue with an empty list to keep the route healthy.
+    console.error("searchWebsites failed during server render:", err);
+    initialWebsites = [];
+  }
 
   return (
     <main className="min-h-screen bg-white dark:bg-black">

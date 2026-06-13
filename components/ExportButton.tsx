@@ -1,9 +1,10 @@
 'use client';
 
 import { exportWebsitesToExcel } from '@/lib/excelUtils';
+import type { Website } from '@prisma/client';
 
 interface ExportButtonProps {
-  data: any[];
+  data: Website[];
   filename?: string;
 }
 

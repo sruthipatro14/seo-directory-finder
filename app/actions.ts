@@ -2,7 +2,7 @@
 
 import { runDiscoveryPipeline } from "@/services/discoveryPipeline";
 import { saveSearch } from "@/services/searchHistoryService";
-import { Website } from "@prisma/client";
+import type { Website } from "@prisma/client";
 
 /** 
  * Server Action to trigger the end-to-end discovery pipeline from a Client Component.
@@ -12,13 +12,8 @@ export async function searchWebsitesAction(keyword: string): Promise<Website[]> 
   console.log("Search started:", keyword);
   const report = await runDiscoveryPipeline(keyword);
   
-  // Map PipelineResult to Website type for the UI
-  return report.results.map(r => ({
-    ...r,
-    daCategory: r.daCategory as any,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }));
+  // PipelineResult already has the correct Website shape, so just cast it
+  return report.results as Website[];
 }
 
 /** Server Action to log search history from a Client Component */

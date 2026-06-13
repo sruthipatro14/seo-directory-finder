@@ -365,11 +365,11 @@ class MockProvider implements DiscoveryProvider {
  * TODO: Implement using SerpApi.
  * Docs: https://serpapi.com/search-api
  */
-class SerpApiProvider implements DiscoveryProvider {
-  readonly name = "serpapi";
-  constructor(private readonly apiKey: string) {}
-  async search(queries: string[]): Promise<DiscoveryResult[]> { return []; }
-}
+// class SerpApiProvider implements DiscoveryProvider {
+//   readonly name = "serpapi";
+//   constructor(private readonly apiKey: string) {}
+//   async search(): Promise<DiscoveryResult[]> { return []; }
+// }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 

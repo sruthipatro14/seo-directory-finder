@@ -104,7 +104,7 @@ export async function crawlWebsite(
   // Basic URL validation
   try {
     new URL(url);
-  } catch (err) {
+  } catch {
     return {
       title:            "",
       description:      "",

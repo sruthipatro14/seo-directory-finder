@@ -1,7 +1,7 @@
+import Link from "next/link";
 import { getAdminStats } from "@/services/websiteService";
 import { getMostSearchedKeywords } from "@/services/searchHistoryService";
 import ExportButton from "@/components/ExportButton";
-import LogoutButton from "@/components/LogoutButton";
 
 export default async function AdminDashboardPage() {
   const stats = await getAdminStats();
@@ -14,8 +14,7 @@ export default async function AdminDashboardPage() {
         <h1 className="text-2xl font-bold tracking-tight">Admin Dashboard</h1>
         <div className="flex items-center gap-6">
           <ExportButton data={stats.recentWebsites} filename="recent-websites.xlsx" />
-          <LogoutButton />
-          <a href="/" className="text-sm font-medium hover:opacity-70 transition-opacity">Live Directory</a>
+          <Link href="/" className="text-sm font-medium hover:opacity-70 transition-opacity">Live Directory</Link>
         </div>
       </nav>
 

@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Website } from '@prisma/client'; // Assuming Website type is directly from Prisma client
+import React, { useState } from 'react';
+import type { Website } from '@prisma/client'; // import type to avoid bundling @prisma/client into client bundle
 import { searchWebsitesAction, recordSearchAction } from '@/app/actions';
 
 // Placeholder for DashboardStats and ResultsTable components
@@ -105,9 +105,8 @@ export default function HomepageClient({ initialWebsites }: HomepageClientProps)
     }
   };
 
-  const debouncedSearchTerm = useMemo(() => searchTerm, [searchTerm]);
-
   // Optional: Debounce search for a more responsive feel without hitting DB too hard
+  // const debouncedSearchTerm = useMemo(() => searchTerm, [searchTerm]);
   // useEffect(() => {
   //   const handler = setTimeout(() => {
   //     if (debouncedSearchTerm.length > 2 || debouncedSearchTerm.length === 0) {

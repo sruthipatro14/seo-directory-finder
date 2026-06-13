@@ -7,7 +7,7 @@ async function main() {
     console.log('✅ Success! Prisma successfully connected to the database.');
     
     const result = await prisma.$queryRaw`SELECT NOW() as current_time`;
-    console.log('📊 Database handshake successful. Current time:', (result as any)[0].current_time);
+    console.log('📊 Database handshake successful. Current time:', (result as Array<{ current_time: Date }>)[0].current_time);
   } catch (error) {
     console.error('❌ Database connection failed!');
     console.error('Error Details:', error instanceof Error ? error.message : error);
