@@ -17,8 +17,12 @@ model Website {
   id              String     @id @default(cuid())
   name            String
   url             String     @unique
+  description     String?
   domainAuthority Int        @default(0)
   spamScore       Int        @default(0)
+  estimatedTraffic Int       @default(0)
+  contactEmail    String?
+  socialLinks     Json?
   freeListing     Boolean    @default(false)
   industry        String
   daCategory      DaCategory @default(Low)

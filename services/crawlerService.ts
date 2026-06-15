@@ -2,8 +2,10 @@
 //
 // Uses Playwright (Chromium) to visit pages and extract SEO data.
 
-import { defaultCrawlerConfig } from "@/crawler/crawler.config";
+import { defaultCrawlerConfig, getRandomUserAgent, getRealisticHeaders } from "@/crawler/crawler.config";
 import { getBrowser, closeBrowser } from "@/crawler/browserPool";
+import { formatDateSafe } from "./dateUtils";
+import { logger } from "./logger";
 
 // ─── Public result types ──────────────────────────────────────────────────────
 
@@ -14,9 +16,11 @@ export interface CrawlResult {
   links: string[];
   freeListing: boolean;
   detectedKeywords: string[];
+  email?: string;
+  socials: Record<string, string>;
   // Metadata for pipeline compatibility
   url?: string;
-  crawledAt?: Date;
+  crawledAt?: string;
   error?: string;
 }
 
@@ -98,8 +102,9 @@ export async function crawlWebsite(
   url: string,
   options: CrawlOptions = {}
 ): Promise<CrawlResult> {
+  const crawledAt = formatDateSafe(new Date());
   const timeoutMs = options.timeoutMs ?? defaultCrawlerConfig.timeoutMs;
-  const userAgent = options.userAgent ?? defaultCrawlerConfig.userAgent;
+  const userAgent = options.userAgent ?? getRandomUserAgent();
 
   // Basic URL validation
   try {
@@ -112,8 +117,9 @@ export async function crawlWebsite(
       links:            [],
       freeListing:      false,
       detectedKeywords: [],
+      socials:           {},
       url,
-      crawledAt:        new Date(),
+      crawledAt,
       error:            "Invalid URL format",
     };
   }
@@ -126,15 +132,43 @@ export async function crawlWebsite(
     context = await browser.newContext({
       userAgent,
       viewport: defaultCrawlerConfig.viewport,
+      extraHTTPHeaders: getRealisticHeaders(url),
     });
 
     const page = await context.newPage();
 
-    // Navigate to the site
-    await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout:   timeoutMs,
-    });
+    // Navigate to the site with retry logic and backoff strategy
+    let attempts = 0;
+    const maxAttempts = 3;
+    let delay = 1000;
+    let response = null;
+    let lastError = null;
+
+    while (attempts < maxAttempts) {
+      try {
+        attempts++;
+        response = await page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout:   timeoutMs,
+        });
+        if (response && response.status() >= 400) {
+          throw new Error(`HTTP status ${response.status()}`);
+        }
+        lastError = null;
+        break; // Success!
+      } catch (err) {
+        lastError = err;
+        if (attempts < maxAttempts) {
+          console.warn(`[Crawler] Attempt ${attempts} failed for ${url}: ${err instanceof Error ? err.message : String(err)}. Retrying in ${delay}ms...`);
+          await page.waitForTimeout(delay);
+          delay *= 2; // exponential backoff
+        }
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
 
     // 1. Extract Page Title
     const title = await page.title();
@@ -172,15 +206,34 @@ export async function crawlWebsite(
     const detectedKeywords = detectKeywords(searchableText);
     const freeListing = detectedKeywords.length > 0;
 
+    // Extract Email
+    const email = extractedLinks
+      .find(href => href.startsWith('mailto:'))
+      ?.replace('mailto:', '')
+      .split('?')[0];
+
+    // Extract Socials
+    const socials: Record<string, string> = {};
+    const platforms = ['facebook', 'twitter', 'linkedin', 'instagram', 'youtube'];
+    extractedLinks.forEach(link => {
+      platforms.forEach(p => {
+        if (link.includes(`${p}.com/`) && !socials[p]) {
+          socials[p] = link;
+        }
+      });
+    });
+
     return {
       title,
-      description,
+      description: description || title,
       homepageText,
       links: resolvedLinks,
       freeListing,
       detectedKeywords,
+      email,
+      socials,
       url: page.url(),
-      crawledAt: new Date(),
+      crawledAt,
     };
   } catch (err) {
     return {
@@ -190,8 +243,9 @@ export async function crawlWebsite(
       links:            [],
       freeListing:      false,
       detectedKeywords: [],
+      socials:           {},
       url,
-      crawledAt:        new Date(),
+      crawledAt:        formatDateSafe(new Date()),
       error:            err instanceof Error ? err.message : "Crawl failed.",
     };
   } finally {

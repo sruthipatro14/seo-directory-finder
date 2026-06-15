@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { Prisma, Website, DaCategory } from "@prisma/client";
+import { normalizeUrl } from "./urlUtils";
 
 // ─── Read ────────────────────────────────────────────────────────────────────
 
@@ -73,18 +74,23 @@ export async function createWebsite(
 export async function saveDiscoveredWebsite(
   data: Prisma.WebsiteCreateInput
 ): Promise<Website> {
+  const normalizedUrl = normalizeUrl(data.url);
   return prisma.website.upsert({
-    where: { url: data.url },
+    where: { url: normalizedUrl },
     update: {
       name: data.name,
+      description: data.description,
       domainAuthority: data.domainAuthority,
       spamScore: data.spamScore,
+      estimatedTraffic: data.estimatedTraffic,
+      contactEmail: data.contactEmail,
+      socialLinks: data.socialLinks,
       freeListing: data.freeListing,
       industry: data.industry,
       daCategory: data.daCategory,
       active: data.active,
     },
-    create: data,
+    create: { ...data, url: normalizedUrl },
   });
 }
 

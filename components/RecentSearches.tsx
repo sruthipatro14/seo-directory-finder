@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatDateSafe } from "@/services/dateUtils";
 import DeleteSearchButton from "@/components/DeleteSearchButton";
 
 // SearchHistory shape — mirrors Prisma's generated type.
@@ -14,16 +15,6 @@ interface RecentSearchesProps {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(date));
-}
 
 function keywordToSlug(keyword: string): string {
   return keyword.trim().toLowerCase().replace(/\s+/g, "-");
@@ -117,7 +108,7 @@ export default function RecentSearches({ searches }: RecentSearchesProps) {
 
                   {/* Date */}
                   <td className="px-6 py-3 text-zinc-400 dark:text-zinc-500 whitespace-nowrap">
-                    {formatDate(item.createdAt)}
+                    {formatDateSafe(item.createdAt, true)}
                   </td>
 
                   {/* Delete */}

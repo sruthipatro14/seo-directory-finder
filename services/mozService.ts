@@ -3,6 +3,7 @@
 // Fetches Domain Authority and Spam Score from the Moz API.
 
 import crypto from "crypto";
+import { logger } from "./logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,10 @@ function isValidDomain(domain: string): boolean {
   return /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/.test(domain);
 }
 
+// Global promise chain to serialize Moz requests (1 every 10s for free tier)
+let mozRequestQueue = Promise.resolve();
+const MOZ_THROTTLE_MS = 10500;
+
 // ─── Providers ────────────────────────────────────────────────────────────────
 
 /**
@@ -65,37 +70,44 @@ class MozApiProvider implements MozProvider {
   constructor(private accessId: string, private secretKey: string) {}
 
   async getMetrics(domain: string): Promise<MozMetrics> {
-    const expires = Math.floor(Date.now() / 1000) + 300;
-    const stringToSign = `${this.accessId}\n${expires}`;
-    const signature = crypto
-      .createHmac("sha1", this.secretKey)
-      .update(stringToSign)
-      .digest("base64");
+    return (mozRequestQueue = mozRequestQueue.then(async () => {
+      const expires = Math.floor(Date.now() / 1000) + 300;
+      const stringToSign = `${this.accessId}\n${expires}`;
+      const signature = crypto
+        .createHmac("sha1", this.secretKey)
+        .update(stringToSign)
+        .digest("base64");
 
-    const query = encodeURIComponent(domain);
-    const url = `https://lsapi.moz.com/linkscape/url-metrics/${query}?Cols=68719476736&AccessID=${this.accessId}&Expires=${expires}&Signature=${encodeURIComponent(signature)}`;
+      const query = encodeURIComponent(domain);
+      const url = `https://lsapi.moz.com/linkscape/url-metrics/${query}?Cols=68719476736&AccessID=${this.accessId}&Expires=${expires}&Signature=${encodeURIComponent(signature)}`;
 
-    try {
-      const response = await fetch(url);
+      try {
+        const response = await fetch(url);
 
-      if (response.status === 429) {
-        throw new Error("Moz API Rate Limit exceeded (429). Free tier allows 1 req / 10s.");
+        if (response.status === 429) {
+          throw new Error("Moz API Rate Limit exceeded (429).");
+        }
+
+        if (!response.ok) {
+          throw new Error(`Moz API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Enforce the 10s delay for the next item in the queue
+        await new Promise(r => setTimeout(r, MOZ_THROTTLE_MS));
+
+        return {
+          domainAuthority: Math.round(data.pda || 0),
+          spamScore: Math.round(data.fsq || 0),
+        };
+      } catch (err) {
+        logger.error(`[MozProvider] Request failed:`, err);
+        // Release queue after a shorter wait on failure
+        await new Promise(r => setTimeout(r, 2000));
+        throw err;
       }
-
-      if (!response.ok) {
-        throw new Error(`Moz API error: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-
-      return {
-        domainAuthority: Math.round(data.pda || 0),
-        spamScore: Math.round(data.fsq || 0),
-      };
-    } catch (err) {
-      console.error(`[MozProvider] Request failed:`, err);
-      throw err;
-    }
+    }));
   }
 }
 

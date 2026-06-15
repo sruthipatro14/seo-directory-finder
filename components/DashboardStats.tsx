@@ -1,3 +1,6 @@
+"use client";
+
+import type { ReactNode } from "react";
 import { Website } from "@/types/website";
 
 interface DashboardStatsProps {
@@ -8,7 +11,7 @@ interface StatCardProps {
   label: string;
   value: string | number;
   sublabel: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   accent: string;
 }
 

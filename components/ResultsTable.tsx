@@ -1,4 +1,7 @@
+"use client";
+
 import { Website } from "@/types/website";
+import { formatDateSafe } from "@/services/dateUtils";
 
 interface ResultsTableProps {
   websites: Website[];
@@ -23,11 +26,13 @@ export default function ResultsTable({ websites }: ResultsTableProps) {
         <thead className="bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 uppercase text-xs tracking-wider">
           <tr>
             <th className="px-4 py-3 font-medium">Website Name</th>
-            <th className="px-4 py-3 font-medium">Domain Authority</th>
-            <th className="px-4 py-3 font-medium">DA Category</th>
-            <th className="px-4 py-3 font-medium">Spam Score</th>
-            <th className="px-4 py-3 font-medium">Free Listing</th>
-            <th className="px-4 py-3 font-medium">Industry</th>
+            <th className="px-4 py-3 font-medium">Domain</th>
+            <th className="px-4 py-3 font-medium text-center">DA</th>
+            <th className="px-4 py-3 font-medium text-center">Spam</th>
+            <th className="px-4 py-3 font-medium">Traffic</th>
+            <th className="px-4 py-3 font-medium">Contact</th>
+            <th className="px-4 py-3 font-medium">Status</th>
+            <th className="px-4 py-3 font-medium">Date Added</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -38,47 +43,38 @@ export default function ResultsTable({ websites }: ResultsTableProps) {
             >
               {/* Website Name */}
               <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
-                <a
-                  href={site.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:underline text-blue-600 dark:text-blue-400"
-                >
-                  {site.name}
-                </a>
+                <div className="font-semibold">{site.name}</div>
+                <div className="text-xs text-zinc-500 truncate max-w-[200px]">{site.description}</div>
               </td>
 
-              {/* Domain Authority */}
-              <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">
+              <td className="px-4 py-3 text-zinc-500 text-xs">
+                {new URL(site.url).hostname}
+              </td>
+
+              <td className="px-4 py-3 text-center text-zinc-700 dark:text-zinc-300 font-mono">
                 {site.domainAuthority}
               </td>
 
-              {/* DA Category */}
-              <td className="px-4 py-3">
-                <span
-                  className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${daCategoryStyles[site.daCategory]}`}
-                >
-                  {site.daCategory}
-                </span>
-              </td>
-
-              {/* Spam Score */}
-              <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">
+              <td className="px-4 py-3 text-center text-zinc-700 dark:text-zinc-300 font-mono">
                 {site.spamScore}%
               </td>
 
-              {/* Free Listing */}
-              <td className="px-4 py-3">
-                {site.freeListing ? (
-                  <span className="text-green-600 font-semibold">✓ Free</span>
-                ) : (
-                  <span className="text-zinc-400">Paid</span>
-                )}
+              <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300 text-xs font-mono text-right">
+                {site.estimatedTraffic?.toLocaleString() || '0'}
               </td>
 
-              {/* Industry */}
-              <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">
-                {site.industry}
+              <td className="px-4 py-3 text-zinc-500 text-xs">
+                {site.contactEmail || <span className="text-zinc-400 italic">Not found</span>}
+              </td>
+
+              <td className="px-4 py-3">
+                <span className={`text-[10px] px-2 py-1 rounded-full uppercase font-bold ${site.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {site.active ? 'Active' : 'Offline'}
+                </span>
+              </td>
+
+              <td className="px-4 py-3 text-zinc-500 text-[10px]">
+                {formatDateSafe(site.createdAt)}
               </td>
             </tr>
           ))}
