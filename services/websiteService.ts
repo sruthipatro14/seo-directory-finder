@@ -140,17 +140,33 @@ export async function deleteWebsite(id: string): Promise<Website> {
  * Returns only active websites, ordered by Domain Authority.
  */
 export async function searchWebsites(keyword: string): Promise<Website[]> {
-  const searchLower = keyword.toLowerCase();
-  return prisma.website.findMany({
+  const searchLower = keyword.toLowerCase().trim();
+  
+  // If no keyword, just return everything sorted by DA
+  if (!searchLower) return getAllWebsites();
+
+  const results = await prisma.website.findMany({
     where: {
+      active: true,
       OR: [
-        { name: { contains: searchLower } },
-        { url: { contains: searchLower } },
-        { industry: { contains: searchLower } },
+        { industry: { equals: "General Business", mode: 'insensitive' } },
+        { industry: { contains: searchLower, mode: 'insensitive' } },
+        { name: { contains: searchLower, mode: 'insensitive' } }
       ],
-      active: true, // Only show active websites
     },
-    orderBy: { domainAuthority: "desc" }, // Order by DA for relevance
+    orderBy: { domainAuthority: "desc" },
+  });
+
+  // Sort results: industry matches first, then general business
+  return results.sort((a, b) => {
+    const aIsSpecific = a.industry.toLowerCase().includes(searchLower) || a.name.toLowerCase().includes(searchLower);
+    const bIsSpecific = b.industry.toLowerCase().includes(searchLower) || b.name.toLowerCase().includes(searchLower);
+
+    if (aIsSpecific && !bIsSpecific) return -1;
+    if (!aIsSpecific && bIsSpecific) return 1;
+    
+    // If both specific or both general, maintain DA order
+    return b.domainAuthority - a.domainAuthority;
   });
 }
 

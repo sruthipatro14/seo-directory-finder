@@ -48,8 +48,10 @@ export default function ResultsTable({ websites }: ResultsTableProps) {
             <th className="px-4 py-3 font-medium">Directory Name</th>
             <th className="px-4 py-3 font-medium">Domain</th>
             <th className="px-4 py-3 font-medium">Add Listing URL</th>
+            <th className="px-4 py-3 font-medium">Category</th>
             <th className="px-4 py-3 font-medium">Free/Paid</th>
-            <th className="px-4 py-3 font-medium">Listing Capable</th>
+            <th className="px-4 py-3 font-medium text-center">DA</th>
+            <th className="px-4 py-3 font-medium text-center">Spam</th>
             <th className="px-4 py-3 font-medium">Verification Type</th>
           </tr>
         </thead>
@@ -86,14 +88,18 @@ export default function ResultsTable({ websites }: ResultsTableProps) {
                 )}
               </td>
 
-              <td className="px-4 py-3 text-xs truncate max-w-[200px]">
+              <td className="px-4 py-3 text-xs">
                 {site.submissionUrl ? (
-                  <a href={site.submissionUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline font-mono">
+                  <a href={site.submissionUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
                     {site.submissionUrl}
                   </a>
                 ) : (
                   <span className="text-slate-500 italic">N/A</span>
                 )}
+              </td>
+
+              <td className="px-4 py-3 text-zinc-500 text-xs">
+                {site.industry || "General"}
               </td>
 
               <td className="px-4 py-3">
@@ -102,37 +108,16 @@ export default function ResultsTable({ websites }: ResultsTableProps) {
                 </span>
               </td>
 
-              <td className="px-4 py-3 min-w-[160px]">
-                <div className="flex flex-col gap-1 text-[10px] bg-slate-900/40 p-2 rounded-lg border border-slate-800">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Add Business:</span>
-                    <span className={(site as DirectoryResult).hasAddBusiness ? "text-emerald-400 font-bold" : "text-slate-600"}>
-                      {(site as DirectoryResult).hasAddBusiness ? "Yes" : "No"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Submit Listing:</span>
-                    <span className={(site as DirectoryResult).hasSubmitListing ? "text-emerald-400 font-bold" : "text-slate-600"}>
-                      {(site as DirectoryResult).hasSubmitListing ? "Yes" : "No"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Claim Listing:</span>
-                    <span className={(site as DirectoryResult).hasClaimListing ? "text-emerald-400 font-bold" : "text-slate-600"}>
-                      {(site as DirectoryResult).hasClaimListing ? "Yes" : "No"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Create Profile:</span>
-                    <span className={(site as DirectoryResult).hasCreateProfile ? "text-emerald-400 font-bold" : "text-slate-600"}>
-                      {(site as DirectoryResult).hasCreateProfile ? "Yes" : "No"}
-                    </span>
-                  </div>
-                  <div className="mt-1 pt-1 border-t border-slate-700 flex justify-between font-semibold">
-                    <span className="text-slate-400">Confidence:</span>
-                    <span className="text-blue-400">{(site as DirectoryResult).listingConfidence ?? 0}%</span>
-                  </div>
-                </div>
+              <td className="px-4 py-3 text-center">
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${daCategoryStyles[site.daCategory]}`}>
+                  {site.domainAuthority}
+                </span>
+              </td>
+
+              <td className="px-4 py-3 text-center">
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${site.spamScore < 5 ? 'bg-green-900/20 text-green-400' : 'bg-red-900/20 text-red-400'}`}>
+                  {site.spamScore}%
+                </span>
               </td>
 
               <td className="px-4 py-3 text-slate-400 text-xs italic">

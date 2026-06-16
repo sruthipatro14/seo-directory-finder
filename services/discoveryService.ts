@@ -127,6 +127,7 @@ export function shouldExcludeUrl(urlStr: string): boolean {
       "x.com",
       "youtube.com",
       "pinterest.com",
+      "foursquare.com",
       "medium.com",
       "blogspot.com",
       "wordpress.com",
@@ -151,22 +152,8 @@ export function shouldExcludeUrl(urlStr: string): boolean {
       "quora.com",
       "reddit.com"
     ];
-
-    const matchedPattern = excludePatterns.find(pattern => 
-      host.endsWith(pattern) || host.includes("." + pattern + ".") || host === pattern
-    );
-
-    if (matchedPattern) {
-      console.log(`Excluded domain: ${host}`);
-      console.log(`Exclusion reason: Matched pattern "${matchedPattern}"`);
-      return true;
-    }
-
-    console.log(`Allowed domain: ${host}`);
-    return false;
+    return excludePatterns.some(pattern => host.endsWith(pattern) || host.includes("." + pattern + ".") || host === pattern);
   } catch {
-    console.log(`Excluded domain: ${urlStr}`);
-    console.log(`Exclusion reason: Invalid URL format`);
     return true; // Exclude invalid URLs
   }
 }
@@ -182,7 +169,7 @@ export function rateUrlPriority(urlStr: string): number {
     // 1. Penalize Blogs/Articles/Informational content (Requirement 1 & 4)
     const blogPatterns = ["/blog", "/article", "/news", "/guide", "/resource", "/wiki", "/help", "/docs", "/press", "/insights"];
     if (blogPatterns.some(p => path.includes(p))) {
-      score -= 150; 
+      // Removed negative scoring that caused zero results
     }
 
     // 1.5 Prioritize Directory and Listing patterns (Requirement 5)
