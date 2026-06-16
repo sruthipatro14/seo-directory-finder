@@ -6,6 +6,7 @@ export interface SeedDirectory {
   freeOrPaid: string;
   verificationMethod: string;
   supportsSelfSubmission: boolean;
+  industryTags: string[];
 }
 
 export const citationDirectories: SeedDirectory[] = [
@@ -16,7 +17,8 @@ export const citationDirectories: SeedDirectory[] = [
     category: 'General Business',
     freeOrPaid: 'Freemium',
     verificationMethod: 'Phone / Email',
-    supportsSelfSubmission: true
+    supportsSelfSubmission: true,
+    industryTags: ['local', 'reviews', 'business']
   },
   {
     name: 'Better Business Bureau (BBB)',
@@ -25,7 +27,8 @@ export const citationDirectories: SeedDirectory[] = [
     category: 'General Business',
     freeOrPaid: 'Paid',
     verificationMethod: 'Varies by location',
-    supportsSelfSubmission: true
+    supportsSelfSubmission: true,
+    industryTags: ['trust', 'accreditation']
   },
   {
     name: 'Yellow Pages',
@@ -34,7 +37,8 @@ export const citationDirectories: SeedDirectory[] = [
     category: 'General Business',
     freeOrPaid: 'Freemium',
     verificationMethod: 'Phone',
-    supportsSelfSubmission: true
+    supportsSelfSubmission: true,
+    industryTags: ['directory', 'local']
   },
   {
     name: 'Hotfrog',
@@ -43,7 +47,8 @@ export const citationDirectories: SeedDirectory[] = [
     category: 'General Business',
     freeOrPaid: 'Free',
     verificationMethod: 'Email',
-    supportsSelfSubmission: true
+    supportsSelfSubmission: true,
+    industryTags: ['global', 'directory']
   },
   {
     name: 'Manta',
@@ -52,7 +57,8 @@ export const citationDirectories: SeedDirectory[] = [
     category: 'General Business',
     freeOrPaid: 'Freemium',
     verificationMethod: 'Phone / Email',
-    supportsSelfSubmission: true
+    supportsSelfSubmission: true,
+    industryTags: ['small business', 'local']
   },
   {
     name: 'Brownbook',
@@ -61,7 +67,8 @@ export const citationDirectories: SeedDirectory[] = [
     category: 'General Business',
     freeOrPaid: 'Free',
     verificationMethod: 'Email',
-    supportsSelfSubmission: true
+    supportsSelfSubmission: true,
+    industryTags: ['free', 'global']
   },
   {
     name: 'MerchantCircle',
@@ -70,7 +77,8 @@ export const citationDirectories: SeedDirectory[] = [
     category: 'General Business',
     freeOrPaid: 'Free',
     verificationMethod: 'Email',
-    supportsSelfSubmission: true
+    supportsSelfSubmission: true,
+    industryTags: ['networking', 'local']
   },
   {
     name: 'Foursquare',
@@ -79,7 +87,8 @@ export const citationDirectories: SeedDirectory[] = [
     category: 'General Business',
     freeOrPaid: 'Free',
     verificationMethod: 'Phone',
-    supportsSelfSubmission: true
+    supportsSelfSubmission: true,
+    industryTags: ['location', 'check-in']
   },
   {
     name: 'SuperPages',
@@ -88,7 +97,8 @@ export const citationDirectories: SeedDirectory[] = [
     category: 'General Business',
     freeOrPaid: 'Freemium',
     verificationMethod: 'Phone',
-    supportsSelfSubmission: true
+    supportsSelfSubmission: true,
+    industryTags: ['local', 'directory']
   },
   // Industry Specific Examples
   {
@@ -98,7 +108,48 @@ export const citationDirectories: SeedDirectory[] = [
     category: 'Healthcare',
     freeOrPaid: 'Free',
     verificationMethod: 'Medical License',
-    supportsSelfSubmission: true
+    supportsSelfSubmission: true,
+    industryTags: ['healthcare', 'doctor', 'dentist']
+  },
+  {
+    name: 'Zocdoc',
+    website: 'https://www.zocdoc.com',
+    addListingUrl: 'https://www.zocdoc.com/join',
+    category: 'Healthcare',
+    freeOrPaid: 'Paid',
+    verificationMethod: 'Phone / Medical License',
+    supportsSelfSubmission: true,
+    industryTags: ['healthcare', 'doctor', 'dentist']
+  },
+  {
+    name: 'RateMDs',
+    website: 'https://www.ratemds.com',
+    addListingUrl: 'https://www.ratemds.com/claim-profile/',
+    category: 'Healthcare',
+    freeOrPaid: 'Free',
+    verificationMethod: 'Email',
+    supportsSelfSubmission: true,
+    industryTags: ['healthcare', 'doctor', 'dentist']
+  },
+  {
+    name: 'CareDash',
+    website: 'https://www.caredash.com',
+    addListingUrl: 'https://www.caredash.com/portal',
+    category: 'Healthcare',
+    freeOrPaid: 'Free',
+    verificationMethod: 'Email / Phone',
+    supportsSelfSubmission: true,
+    industryTags: ['healthcare', 'doctor', 'dentist']
+  },
+  {
+    name: 'WebMD Provider Directory',
+    website: 'https://doctor.webmd.com',
+    addListingUrl: 'https://www.webmd.com/directory-submission',
+    category: 'Healthcare',
+    freeOrPaid: 'Free',
+    verificationMethod: 'Varies',
+    supportsSelfSubmission: true,
+    industryTags: ['healthcare', 'doctor', 'dentist']
   },
   {
     name: 'Avvo',
@@ -107,6 +158,67 @@ export const citationDirectories: SeedDirectory[] = [
     category: 'Legal',
     freeOrPaid: 'Freemium',
     verificationMethod: 'Legal Bar ID',
-    supportsSelfSubmission: true
+    supportsSelfSubmission: true,
+    industryTags: ['legal', 'lawyer']
+  },
+  {
+    name: 'FindLaw',
+    website: 'https://www.findlaw.com',
+    addListingUrl: 'https://www.findlaw.com/contact-us.html',
+    category: 'Legal',
+    freeOrPaid: 'Paid',
+    verificationMethod: 'Varies',
+    supportsSelfSubmission: true,
+    industryTags: ['legal', 'lawyer']
+  },
+  {
+    name: 'Justia',
+    website: 'https://www.justia.com',
+    addListingUrl: 'https://www.justia.com/marketing/',
+    category: 'Legal',
+    freeOrPaid: 'Freemium',
+    verificationMethod: 'Email',
+    supportsSelfSubmission: true,
+    industryTags: ['legal', 'lawyer']
+  },
+  {
+    name: 'Lawyers.com',
+    website: 'https://www.lawyers.com',
+    addListingUrl: 'https://www.lawyers.com/advertise/',
+    category: 'Legal',
+    freeOrPaid: 'Paid',
+    verificationMethod: 'Phone',
+    supportsSelfSubmission: true,
+    industryTags: ['legal', 'lawyer']
+  },
+  {
+    name: 'Houzz',
+    website: 'https://www.houzz.com',
+    addListingUrl: 'https://www.houzz.com/getListed',
+    category: 'General Business',
+    freeOrPaid: 'Freemium',
+    verificationMethod: 'Email',
+    supportsSelfSubmission: true,
+    industryTags: ['contractor', 'home', 'renovation']
+  },
+  {
+    name: 'Angi',
+    website: 'https://www.angi.com',
+    addListingUrl: 'https://www.angi.com/join',
+    category: 'General Business',
+    freeOrPaid: 'Paid',
+    verificationMethod: 'Phone',
+    supportsSelfSubmission: true,
+    industryTags: ['contractor', 'home']
+  },
+  {
+    name: 'HomeAdvisor',
+    website: 'https://www.homeadvisor.com',
+    addListingUrl: 'https://www.homeadvisor.com/pro/join/',
+    category: 'General Business',
+    freeOrPaid: 'Paid',
+    verificationMethod: 'Phone',
+    supportsSelfSubmission: true,
+    industryTags: ['contractor', 'home']
   }
 ];

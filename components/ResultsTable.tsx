@@ -15,6 +15,7 @@ type DirectoryResult = Website & {
   hasClaimListing?: boolean;
   hasCreateProfile?: boolean;
   listingConfidence?: number;
+  matchReason?: string;
 };
 
 
@@ -52,6 +53,7 @@ export default function ResultsTable({ websites }: ResultsTableProps) {
             <th className="px-4 py-3 font-medium">Free/Paid</th>
             <th className="px-4 py-3 font-medium text-center">DA</th>
             <th className="px-4 py-3 font-medium text-center">Spam</th>
+            <th className="px-4 py-3 font-medium">Matched By</th>
             <th className="px-4 py-3 font-medium">Verification Type</th>
           </tr>
         </thead>
@@ -117,6 +119,12 @@ export default function ResultsTable({ websites }: ResultsTableProps) {
               <td className="px-4 py-3 text-center">
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${site.spamScore < 5 ? 'bg-green-900/20 text-green-400' : 'bg-red-900/20 text-red-400'}`}>
                   {site.spamScore}%
+                </span>
+              </td>
+
+              <td className="px-4 py-3">
+                <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-1 rounded border border-slate-700 font-medium">
+                  {site.matchReason || "Database Match"}
                 </span>
               </td>
 

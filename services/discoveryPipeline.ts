@@ -472,7 +472,7 @@ export async function runDiscoveryPipeline(
     failed,
     results,
     source:      discovery.provider,
-    isFallback:  discovery.provider === "mock" || discovery.provider === "directory-fallback",
+    isFallback:  discovery.provider === "mock",
     startedAt:   formatDateSafe(startedAt),
     completedAt: formatDateSafe(completedAt),
     diagnostics: {

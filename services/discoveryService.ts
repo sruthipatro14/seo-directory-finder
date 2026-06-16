@@ -14,6 +14,8 @@
 import { formatDateSafe } from "./dateUtils"; // Keep this import
 import { mapConcurrent } from "@/lib/concurrency"; // Ensure this import is present and correct
 import { normalizeUrl } from "./urlUtils";
+import { citationDirectories } from "./citationDirectories";
+import { classifyIndustry } from "./industryClassifier";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -648,77 +650,117 @@ function isConfigured(key: string | undefined): boolean {
   return clean !== "" && clean !== "your_key_here" && clean !== "placeholder" && clean !== "your-secret-here";
 }
 
-function selectProvider(): DiscoveryProvider {
+/**
+ * StaticDirectoryProvider wraps the curated citationDirectories seed
+ * to act as a first-class discovery source.
+ */
+class StaticDirectoryProvider implements DiscoveryProvider {
+  readonly name = "static-seed";
+  async search(queries: string[]): Promise<DiscoveryResult[]> {
+    const coreKeyword = extractCoreKeyword(queries);
+    const classification = await classifyIndustry(coreKeyword);
+    const targetIndustry = classification.industry;
+
+    return citationDirectories
+      .filter(d => d.supportsSelfSubmission)
+      .filter(d => {
+        const tagMatch = d.industryTags.some(tag => coreKeyword.toLowerCase().includes(tag.toLowerCase()));
+        const categoryMatch = d.category === targetIndustry;
+        const isGeneralMatch = d.category === "General Business";
+        const nameMatch = coreKeyword.toLowerCase().includes(d.name.toLowerCase());
+        return tagMatch || categoryMatch || isGeneralMatch || nameMatch;
+      })
+      .map(d => ({
+        url: d.website,
+        title: d.name,
+        description: `Premium ${d.category} directory for business listings.`,
+        sourceQuery: queries[0] || coreKeyword,
+      }));
+  }
+}
+
+// ─── Registry ────────────────────────────────────────────────────────────────
+
+const providerRegistry: DiscoveryProvider[] = [];
+
+/** Registers a provider into the discovery workflow. */
+export function registerProvider(provider: DiscoveryProvider) {
+  if (!providerRegistry.find(p => p.name === provider.name)) {
+    providerRegistry.push(provider);
+  }
+}
+
+/** Returns all registered and enabled providers based on environment config. */
+function getActiveProviders(): DiscoveryProvider[] {
+  // If already populated, return it
+  if (providerRegistry.length > 0) return providerRegistry;
+
   const serpApiKey = process.env.SERPAPI_KEY;
   const braveApiKey = process.env.BRAVE_API_KEY;
   const bingApiKey = process.env.BING_API_KEY;
 
-  const hasSerpApi = isConfigured(serpApiKey);
-  const hasBrave = isConfigured(braveApiKey);
-  const hasBing = isConfigured(bingApiKey);
+  // Always include the static curated database
+  registerProvider(new StaticDirectoryProvider());
 
-  console.log(
-    `[Discovery] API key status — SERPAPI=${hasSerpApi}, BRAVE=${hasBrave}, BING=${hasBing}`
-  );
-
-  if (hasSerpApi && serpApiKey) {
+  if (isConfigured(serpApiKey)) {
     console.log("[Discovery] Initializing primary provider: SerpApi");
-    return new SerpApiProvider(serpApiKey);
+    registerProvider(new SerpApiProvider(serpApiKey!));
   }
-  if (hasBrave && braveApiKey) {
+  if (isConfigured(braveApiKey)) {
     console.log("[Discovery] Initializing fallback provider: Brave Search");
-    return new BraveSearchProvider(braveApiKey);
+    registerProvider(new BraveSearchProvider(braveApiKey!));
   }
-  if (hasBing && bingApiKey) {
+  if (isConfigured(bingApiKey)) {
     console.log("[Discovery] Initializing fallback provider: Bing Search");
-    return new BingSearchProvider(bingApiKey);
+    registerProvider(new BingSearchProvider(bingApiKey!));
   }
 
-  console.warn("[Discovery] No active API keys found. Using directory fallback provider.");
-  return new DirectoryFallbackProvider();
+  // If no external APIs configured, add the scraper fallback
+  if (providerRegistry.length <= 1) {
+    console.warn("[Discovery] No active API keys found. Adding directory fallback scraper.");
+    registerProvider(new DirectoryFallbackProvider());
+  }
+
+  return providerRegistry;
 }
 
-/**
- * Discovers websites for a given keyword using the active provider.
- *
- * @param keyword  - e.g. "healthcare directories", "real estate directories"
- * @param provider - optional override; defaults to a provider selected at call time
- *
- * Usage:
- *   const response = await discoverWebsites("healthcare directories");
- *   console.log(response.results); // DiscoveryResult[]
- *
- * Switching providers (future):
- *   const response = await discoverWebsites("healthcare directories", new GoogleProvider(apiKey, cx));
- */
+/** Deprecated in favor of registry-based aggregation; kept for backward compatibility */
+function selectProvider(): DiscoveryProvider {
+  return getActiveProviders()[0] || new MockProvider();
+}
+
 export async function discoverWebsites(
   keyword: string,
-  provider: DiscoveryProvider = selectProvider()
+  _unused_provider?: DiscoveryProvider
 ): Promise<DiscoveryResponse> {
   if (!keyword.trim()) {
     throw new Error("keyword must not be empty");
   }
 
-  // Always generate queries for directory/listing opportunities
   const queries = generateQueries(keyword);
-  console.log("[Discovery] Provider selected for runtime search:", provider.name);
+  const providers = getActiveProviders();
+  
+  console.log(`[Discovery] Executing aggregation across ${providers.length} providers`);
   console.log("[Discovery] Search queries:", queries);
   
-  let rawResults = await provider.search(queries);
-  console.log("[Discovery] Raw discovery results count:", rawResults.length);
+  // Requirement 3: Fetch results from each enabled provider in parallel
+  const providerTasks = providers.map(async (p) => {
+    try {
+      const results = await p.search(queries);
+      return results.map(r => ({ ...r, sourceProvider: p.name }));
+    } catch (err) {
+      console.error(`[Discovery] Provider "${p.name}" failed:`, err);
+      return [];
+    }
+  });
 
-  let activeProviderName = provider.name;
-
-  if (rawResults.length === 0 && provider.name !== "directory-fallback") {
-    console.warn(`[Discovery] Provider "${provider.name}" returned 0 results. Falling back to directory-fallback provider...`);
-    const fallbackProvider = new DirectoryFallbackProvider();
-    rawResults = await fallbackProvider.search(queries);
-    console.log("[Discovery] Fallback provider raw results count:", rawResults.length);
-    activeProviderName = fallbackProvider.name;
-  }
+  const allProviderResults = await Promise.all(providerTasks);
+  let rawResults = allProviderResults.flat();
+  
+  console.log("[Discovery] Total raw results from all providers:", rawResults.length);
 
   // Remove duplicates, excluded domains and invalid URLs
-  const seen = new Set<string>();
+  const seenDomains = new Set<string>();
   let filteredCount = 0;
   const blogs: string[] = [];
   const directories: string[] = [];
@@ -727,11 +769,12 @@ export async function discoverWebsites(
   const results = rawResults.filter((r) => {
     try {
       const normalized = normalizeUrl(r.url);
+      const domain = new URL(normalized).hostname;
+      
       if (shouldExcludeUrl(normalized)) return false;
-      if (seen.has(normalized)) return false;
-      seen.add(normalized);
+      if (seenDomains.has(domain)) return false; // Requirement 3: Remove duplicates by domain
+      seenDomains.add(domain);
 
-      // Category detection for diagnostics
       const path = new URL(normalized).pathname.toLowerCase();
       if (["/blog", "/article", "/news", "/wiki"].some(p => path.includes(p))) {
         blogs.push(normalized);
@@ -748,26 +791,24 @@ export async function discoverWebsites(
     }
   });
 
-  // Sort by priority combining URL structure and text signals
+  // Requirement 3: Rank results
   results.sort((a, b) => {
     const scoreA = rateUrlPriority(a.url) + calculateResultSignals(a);
     const scoreB = rateUrlPriority(b.url) + calculateResultSignals(b);
     return scoreB - scoreA;
   });
 
-  // Apply rank position based on the final prioritized order
   const rankedResults = results.map((result, index) => ({
     ...result,
-    type: 'listingOpportunity' as const, // Always listing opportunity
+    type: 'listingOpportunity' as const,
     rankPosition: index + 1,
-    sourceProvider: activeProviderName
   }));
 
   return {
     keyword,
     queries,
     results: rankedResults,
-    provider: activeProviderName,
+    provider: "Aggregated",
     discoveredAt: formatDateSafe(new Date()),
     filteredCount,
     diagnostics: {
