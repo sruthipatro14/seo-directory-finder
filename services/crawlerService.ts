@@ -20,6 +20,9 @@ export interface CrawlResult {
   socials: Record<string, string>;
   // Metadata for pipeline compatibility
   url?: string;
+  freeOrPaid: string;
+  canSubmitListing: boolean;
+  submissionUrl?: string;
   crawledAt?: string;
   error?: string;
 }
@@ -32,13 +35,17 @@ export interface CrawlOptions {
 // ─── Keyword registry ─────────────────────────────────────────────────────────
 
 const LISTING_SIGNALS: Record<string, RegExp[]> = {
-  "Add Business":          [/add\s+(?:your\s+)?business/i,        /add\s+(?:a\s+)?listing/i],
-  "Submit Listing":        [/submit\s+(?:a\s+|your\s+)?listing/i, /submit\s+(?:your\s+)?site/i],
+  "Add Business":          [/add\s+(?:your\s+)?business/i,        /add\s+(?:a\s+)?listing/i, /list\s+a\s+business/i],
+  "Submit Listing":        [/submit\s+(?:a\s+|your\s+)?listing/i, /submit\s+(?:your\s+)?site/i, /get\s+listed/i],
   "Free Listing":          [/free\s+listing/i,                    /list\s+(?:for\s+)?free/i, /free\s+submission/i],
-  "Create Profile":        [/create\s+(?:a\s+|your\s+)?(?:business\s+)?profile/i, /set\s+up\s+(?:your\s+)?profile/i],
+  "Create Business Profile": [/create\s+(?:a\s+|your\s+)?business\s+profile/i, /for\s+business\s+owners/i],
   "Register Business":     [/register\s+(?:your\s+)?business/i,   /register\s+(?:a\s+)?company/i],
   "Add Company":           [/add\s+(?:your\s+)?company/i,         /add\s+(?:a\s+)?company/i],
   "Submit Business":       [/submit\s+(?:your\s+)?business/i,     /submit\s+(?:a\s+)?business/i],
+  "Claim Business":        [/claim\s+(?:your\s+|this\s+)?business/i, /claim\s+(?:your\s+|this\s+)?listing/i],
+  "List Your Business":    [/list\s+your\s+business/i,            /advertise\s+with\s+us/i],
+  "Business Signup":       [/business\s+signup/i,                 /business\s+registration/i],
+  "Create Listing":        [/create\s+listing/i,                  /create\s+a\s+listing/i],
 };
 
 export function detectKeywords(text: string): string[] {
@@ -49,6 +56,18 @@ export function detectKeywords(text: string): string[] {
     }
   }
   return matched;
+}
+
+/** Detects if the directory offers free or paid listings based on content signals. */
+export function detectPricing(text: string): string {
+  const lowerText = text.toLowerCase();
+  const paidMarkers = ["pricing", "plans", "subscribe", "package", "premium", "monthly", "yearly"];
+  const freeMarkers = ["free listing", "list for free", "zero cost", "no cost", "complimentary"];
+  
+  const hasPaid = paidMarkers.some(m => lowerText.includes(m));
+  const hasFree = freeMarkers.some(m => lowerText.includes(m));
+  
+  return hasFree ? "Free" : hasPaid ? "Paid" : "Free/Paid";
 }
 
 // ─── Content extractors ───────────────────────────────────────────────────────
@@ -102,6 +121,7 @@ export async function crawlWebsite(
   url: string,
   options: CrawlOptions = {}
 ): Promise<CrawlResult> {
+  const cleanUrl = url;
   const crawledAt = formatDateSafe(new Date());
   const timeoutMs = options.timeoutMs ?? defaultCrawlerConfig.timeoutMs;
   const userAgent = options.userAgent ?? getRandomUserAgent();
@@ -115,7 +135,9 @@ export async function crawlWebsite(
       description:      "",
       homepageText:     "",
       links:            [],
+      freeOrPaid:       "Unknown",
       freeListing:      false,
+      canSubmitListing: false,
       detectedKeywords: [],
       socials:           {},
       url,
@@ -204,7 +226,36 @@ export async function crawlWebsite(
     // 5. Detect Listing Signals
     const searchableText = await extractSearchableText(page);
     const detectedKeywords = detectKeywords(searchableText);
-    const freeListing = detectedKeywords.length > 0;
+    const freeOrPaid = detectPricing(searchableText);
+    const canSubmitListing = detectedKeywords.length > 0;
+    const freeListing = detectedKeywords.includes("Free Listing");
+
+    let submissionUrl = "";
+    if (canSubmitListing) {
+      // Extract all links to find the direct submission page
+      const linksOnPage = await page.$$eval("a", (els) => 
+        els.map(el => ({ 
+          href: el.getAttribute("href"), 
+          text: (el.textContent || "").trim() 
+        }))
+      ).catch(() => []);
+
+      for (const link of linksOnPage) {
+        if (!link.href) continue;
+        const combined = (link.text + " " + link.href).toLowerCase();
+        
+        const isMatch = Object.values(LISTING_SIGNALS).some(patterns => 
+          patterns.some(re => re.test(combined))
+        );
+
+        if (isMatch) {
+          try {
+            submissionUrl = new URL(link.href, url).href;
+            break; 
+          } catch {}
+        }
+      }
+    }
 
     // Extract Email
     const email = extractedLinks
@@ -228,7 +279,10 @@ export async function crawlWebsite(
       description: description || title,
       homepageText,
       links: resolvedLinks,
+      freeOrPaid,
       freeListing,
+      canSubmitListing,
+      submissionUrl,
       detectedKeywords,
       email,
       socials,
@@ -241,7 +295,9 @@ export async function crawlWebsite(
       description:      "",
       homepageText:     "",
       links:            [],
+      freeOrPaid:       "Unknown",
       freeListing:      false,
+      canSubmitListing: false,
       detectedKeywords: [],
       socials:           {},
       url,

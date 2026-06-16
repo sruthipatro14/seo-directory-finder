@@ -89,6 +89,11 @@ export async function saveDiscoveredWebsite(
       industry: data.industry,
       daCategory: data.daCategory,
       active: data.active,
+      freeOrPaid: data.freeOrPaid,
+      canSubmitListing: data.canSubmitListing,
+      submissionUrl: data.submissionUrl,
+      rankPosition: data.rankPosition,
+      sourceProvider: data.sourceProvider,
     },
     create: { ...data, url: normalizedUrl },
   });

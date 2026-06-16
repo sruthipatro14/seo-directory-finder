@@ -40,6 +40,25 @@ export interface PipelineResult {
   contactEmail: string | null;
   socialLinks: Record<string, string> | null;
   active: boolean;
+  freeOrPaid: string;
+  canSubmitListing: boolean;
+  submissionUrl: string | null;
+  type?: "listingOpportunity";
+  rankPosition?: number;
+  sourceProvider?: string;
+  hasAddBusiness: boolean;
+  hasSubmitListing: boolean;
+  hasClaimListing: boolean;
+  hasCreateProfile: boolean;
+  listingConfidence: number;
+  listingCapable: boolean;
+  listingOpportunityScore: number;
+  positiveSignalsFound: string[];
+  negativeSignalsFound: string[];
+  isRealDirectory: boolean;
+  filterReason: string | null;
+  directoryQualityScore: number;
+  sortReason: string;
 }
 
 export interface PipelineOptions {
@@ -76,6 +95,9 @@ export interface PipelineReport {
     urlsSavedCount: number;
     crawlSuccessRatePercent: number;
     saveSuccessRatePercent: number;
+    discoveredBlogs?: number;
+    discoveredDirectories?: number;
+    discoveredBusinessSites?: number;
   };
 }
 
@@ -106,7 +128,10 @@ async function processUrl(
   discoveredTitle: string,
   index: number,
   total: number,
-  dryRun: boolean
+  dryRun: boolean,
+  rankPosition?: number,
+  sourceProvider?: string,
+  type?: "listingOpportunity"
 ): Promise<PipelineResult | null> {
   logger.info(`[Pipeline] [${index}/${total}] ${discoveredUrl}`);
 
@@ -127,7 +152,102 @@ async function processUrl(
   logger.info(`  Crawled — title: "${crawl.title}"`);
 
   // ── Step 3: Free listing detection (already in CrawlResult) ───────────────
-  const freeListing = crawl.freeListing;
+  const canSubmitListing = crawl.canSubmitListing;
+  const freeListing = crawl.freeListing ?? false;
+  const submissionUrl = crawl.submissionUrl || null;
+
+  const detected = crawl.detectedKeywords || [];
+  const hasAddBusiness = detected.some(k => k === "Add Business" || k === "Add Company");
+  const hasSubmitListing = detected.some(k => k === "Submit Listing" || k === "Submit Business");
+  const hasClaimListing = detected.some(k => k === "Claim Business");
+  const hasCreateProfile = detected.some(k => ["Create Profile", "Create Business Profile", "Business Signup", "Register Business", "Create Listing"].includes(k));
+
+  // Confidence calculation: 40% for direct URL, 15% for each unique action type detected
+  let confScore = 0;
+  if (crawl.submissionUrl) confScore += 40;
+  if (hasAddBusiness) confScore += 15;
+  if (hasSubmitListing) confScore += 15;
+  if (hasClaimListing) confScore += 15;
+  if (hasCreateProfile) confScore += 15;
+  const listingConfidence = Math.min(100, confScore);
+
+  // ── Step 3.5: Listing Opportunity Detection (Stage 2) ─────────────────────
+  const signalText = [
+    crawl.title       || discoveredTitle,
+    crawl.description || "",
+    crawl.homepageText || "",
+    (crawl.links || []).join(" "),
+    discoveredUrl,
+  ].join(" ").toLowerCase();
+
+  const positiveSignalList = [
+    "add business", "submit listing", "submit business", "claim listing", "claim business",
+    "add company", "create profile", "register business", "get listed", "join directory", "add listing"
+  ];
+  const negativeSignalList = [
+    "blog", "guide", "how to", "tips", "best citation sites", "top citation sites",
+    "seo guide", "marketing guide", "article"
+  ];
+
+  const positiveSignalsFound = positiveSignalList.filter(s => signalText.includes(s));
+  const negativeSignalsFound = negativeSignalList.filter(s => signalText.includes(s));
+  const listingOpportunityScore = (positiveSignalsFound.length * 25) - (negativeSignalsFound.length * 15);
+  const listingCapable = positiveSignalsFound.length > 0;
+
+  // ── Step 3.6: Directory Verification (Stage 3) ────────────────────────────
+  const directoryKeywords = ["business directory", "directory category", "directory listings", "business listings", "pages"];
+  const hasDirectorySignals = directoryKeywords.some(kw => signalText.includes(kw));
+  
+  // Task 2: Mark TRUE if submission signals or directory patterns exist
+  let isRealDirectory = hasAddBusiness || hasSubmitListing || hasClaimListing || hasCreateProfile || hasDirectorySignals;
+
+  // Task 3: Mark FALSE if informational content patterns are found
+  const informationalKeywords = [
+    "blog", "seo guide", "citation guide", "top citation sites", 
+    "best citation sites", "marketing article", "resource page", "news article", "tips"
+  ];
+  const hasInformationalSignals = informationalKeywords.some(kw => signalText.includes(kw));
+  
+  if (hasInformationalSignals) {
+    isRealDirectory = false;
+  }
+
+  const filterReason = hasAddBusiness || hasSubmitListing || hasClaimListing || hasCreateProfile
+    ? "Direct submission signals"
+    : isRealDirectory 
+      ? "Identified as directory structure"
+      : "Informational or low-intent content";
+
+  // ── Step 3.7: Directory Quality Ranking (Stage 4) ─────────────────────────
+  let directoryQualityScore = 0;
+  if (hasAddBusiness) directoryQualityScore += 100;
+  if (hasSubmitListing) directoryQualityScore += 80;
+  if (hasClaimListing) directoryQualityScore += 80;
+  if (hasCreateProfile) directoryQualityScore += 60;
+
+  const qualityKeywords = ["directory", "listing", "business-directory", "yellowpages", "hotfrog", "manta", "brownbook", "fyple"];
+  const domainName = new URL(discoveredUrl).hostname.toLowerCase();
+  if (qualityKeywords.some(kw => domainName.includes(kw))) {
+    directoryQualityScore += 40;
+  }
+
+  if (freeListing) {
+    directoryQualityScore += 20;
+  }
+
+  const negativeQualityKeywords = ["blog", "guide", "article", "seo resource"];
+  if (negativeQualityKeywords.some(kw => signalText.includes(kw))) {
+    directoryQualityScore -= 50;
+  }
+
+  const sortReason = directoryQualityScore >= 150 
+    ? "Verified submission platform" 
+    : directoryQualityScore >= 100 
+      ? "Strong directory signals" 
+      : directoryQualityScore > 40 
+        ? "Potential directory" 
+        : "General content";
+
   if (freeListing) {
     logger.info(
       `  Free listing detected — signals: [${crawl.detectedKeywords.join(", ")}]`
@@ -186,6 +306,12 @@ async function processUrl(
     industry:        classification.industry,
     daCategory:      daCategoryStr as DaCategory,
     active:          true,
+    freeOrPaid:      crawl.freeOrPaid,
+    canSubmitListing,
+    submissionUrl,
+    type,
+    rankPosition,
+    sourceProvider
   };
 
   let savedId = `pending-${index}`;
@@ -212,13 +338,32 @@ async function processUrl(
     description:    websiteInput.description || null,
     domainAuthority,
     spamScore,
-    freeListing,
+    freeListing:    websiteInput.freeListing,
+    freeOrPaid:     websiteInput.freeOrPaid,
     industry:       classification.industry,
     daCategory:     daCategoryStr,
     estimatedTraffic: websiteInput.estimatedTraffic,
     contactEmail:    websiteInput.contactEmail || null,
+    canSubmitListing,
+    submissionUrl,
     socialLinks:     websiteInput.socialLinks,
     active:         true,
+    type,
+    rankPosition,
+    sourceProvider,
+    hasAddBusiness,
+    hasSubmitListing,
+    hasClaimListing,
+    hasCreateProfile,
+    listingConfidence,
+    listingCapable,
+    listingOpportunityScore,
+    positiveSignalsFound,
+    negativeSignalsFound,
+    isRealDirectory,
+    filterReason,
+    directoryQualityScore,
+    sortReason
   };
 }
 
@@ -233,16 +378,16 @@ export async function runDiscoveryPipeline(
   logger.info(`Search started — keyword: "${keyword}"`);
   if (dryRun) logger.info(`Dry run — database writes disabled`);
   logger.info(`══════════════════════════════════════════`);
-
   // ── Step 1: Discover website URLs ──────────────────────────────────────────
   logger.info(`Step 1 — Discovering websites…`);
 
   console.log(`Search started (Step 1): "${keyword}"`);
   let discovery;
   try {
-    discovery = await discoverWebsites(keyword);
+    discovery = await discoverWebsites(keyword, undefined);
     logger.info(`Selected provider: ${discovery.provider}`);
     logger.info(`Search queries: ${discovery.queries.join(" | ")}`);
+    console.log(`URLs discovered: ${discovery.results.length}`);
     console.log(`Discovered websites: ${discovery.results.length} using ${discovery.provider} provider`);
     console.log(`URLs discovered: ${discovery.results.map((item) => item.url).join(" | ")}`);
     logger.info(`Websites discovered — ${discovery.results.length} URL(s)`);
@@ -291,8 +436,18 @@ export async function runDiscoveryPipeline(
   try {
     // Process ALL results with a concurrency limit of 3 (as per previous audit's log)
     rawResults = await mapConcurrent(discovery.results, 3, async (item, i) => {
+      console.log(`URLs crawled: ${item.url}`);
       logger.info(`Starting processUrl for ${item.url} (item ${i + 1}/${discovery.results.length})`);
-      return processUrl(item.url, item.title, i + 1, discovery.results.length, dryRun);
+      return processUrl(
+        item.url, 
+        item.title, 
+        i + 1, 
+        discovery.results.length, 
+        dryRun, 
+        item.rankPosition, 
+        item.sourceProvider,
+        item.type
+      );
     });
   } finally {
     // ── Cleanup: close the shared Playwright browser ───────────────────────────
@@ -301,22 +456,58 @@ export async function runDiscoveryPipeline(
   }
 
   const successful = rawResults.filter(r => r !== null);
-  logger.info(`Crawled websites — ${successful.length}/${discovery.results.length}`);
+  console.log(`URLs after crawl: ${successful.length}`);
+
+  const processedCount = rawResults.filter(r => r !== null).length;
+  console.log(`URLs after classification: ${processedCount}`);
+
+  // ── Step 7: Apply Directory-Only Filtering (Stage 3) ───────────────────────
+  const beforeFilterCount = successful.length;
+  
+  const filteredResults = successful.filter(r => {
+    const domain = new URL(r.url).hostname;
+    // Task 5: Keep if direct submission signals exist
+    const overrideKeep = r.hasAddBusiness || r.hasSubmitListing || r.hasClaimListing || r.hasCreateProfile;
+    
+    // Task 4: Exclude if score is non-positive and not a directory
+    const shouldExclude = !overrideKeep && (r.listingOpportunityScore <= 0 && !r.isRealDirectory);
+
+    if (shouldExclude) {
+      console.log(`REMOVING: ${domain.padEnd(30)} | Reason: ${r.filterReason}`);
+      return false;
+    }
+
+    console.log(`KEEPING:  ${domain.padEnd(30)} | Reason: ${r.filterReason}`);
+    return true;
+  });
+
+  const afterFilterCount = filteredResults.length;
+
+  // Rank results by quality score, opportunity score, and DA (Stage 4)
+  filteredResults.sort((a, b) => {
+    if (b.directoryQualityScore !== a.directoryQualityScore) {
+      return b.directoryQualityScore - a.directoryQualityScore;
+    }
+    if (b.listingOpportunityScore !== a.listingOpportunityScore) {
+      return b.listingOpportunityScore - a.listingOpportunityScore;
+    }
+    return b.domainAuthority - a.domainAuthority;
+  });
+
+  logger.info(`Crawled websites — ${afterFilterCount}/${discovery.results.length}`);
   
   const results: PipelineResult[] = [];
   let saved  = 0;
   let failed = 0;
 
-  for (const result of rawResults) {
-    if (result !== null) {
-      results.push(result);
-      if (!result.id.startsWith("pending-")) {
-        saved++;
-      }
-    } else {
-      failed++;
+  filteredResults.forEach(result => {
+    results.push(result);
+    if (!result.id.startsWith("pending-")) {
+      saved++;
     }
-  }
+  });
+
+  failed = discovery.results.length - results.length;
 
   const completedAt = new Date();
   const durationMs  = completedAt.getTime() - startedAt.getTime();
@@ -340,6 +531,30 @@ export async function runDiscoveryPipeline(
   console.log(`- Crawl Success Rate: ${crawlSuccessRatePercent}%`);
   console.log(`- Save Success Rate: ${saveSuccessRatePercent}%`);
   console.log(`==================================================\n`);
+
+  // Stage 4 Audit Report
+  console.log(`\n--- Stage 4 Listing Opportunity Ranking Audit (Top 20) ---`);
+  console.log(`Before Filter: ${beforeFilterCount} | After Filter: ${afterFilterCount}`);
+  console.log("-".repeat(120));
+  console.log(`${"Name".padEnd(30)} | ${"Quality".padEnd(8)} | ${"Opp Score".padEnd(10)} | ${"DA".padEnd(4)} | ${"Sort Reason"}`);
+  console.log("-".repeat(120));
+  
+  results.slice(0, 20).forEach(r => {
+    console.log(
+      `${r.name.slice(0, 30).padEnd(30)} | ` +
+      `${String(r.directoryQualityScore).padEnd(8)} | ` +
+      `${String(r.listingOpportunityScore).padEnd(10)} | ` +
+      `${String(r.domainAuthority).padEnd(4)} | ` +
+      `${r.sortReason}`
+    );
+  });
+  console.log(`------------------------------------------------------------------------------------------------------------------------\n`);
+
+  console.log(`\n--- Top 20 Ranked Domains ---`);
+  results.slice(0, 20).forEach((r, i) => {
+    const domain = new URL(r.url).hostname;
+    console.log(`${i + 1}. ${domain} (Score: ${r.directoryQualityScore})`);
+  });
 
   logger.info(`══════════════════════════════════════════`);
   logger.info(`Results returned — ${results.length} websites`);
@@ -365,6 +580,9 @@ export async function runDiscoveryPipeline(
       urlsSavedCount,
       crawlSuccessRatePercent,
       saveSuccessRatePercent,
+      discoveredBlogs: discovery.diagnostics?.blogs.length,
+      discoveredDirectories: discovery.diagnostics?.directories.length,
+      discoveredBusinessSites: discovery.diagnostics?.businessSites.length,
     }
   };
 }

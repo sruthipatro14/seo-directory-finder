@@ -23,10 +23,10 @@ function keywordToSlug(keyword: string): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function RecentSearches({ searches }: RecentSearchesProps) {
-  return (
-    <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-sm overflow-hidden">
+  return ( // Changed rounded-2xl to rounded-xl, shadow-sm to shadow-lg
+    <div className="rounded-xl border border-slate-700 bg-slate-800 shadow-lg overflow-hidden">
       {/* Card header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 dark:border-zinc-800">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
         <div className="flex items-center gap-2">
           <svg
             className="w-4 h-4 text-zinc-400"
@@ -41,16 +41,16 @@ export default function RecentSearches({ searches }: RecentSearchesProps) {
               d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          <h2 className="text-sm font-semibold text-slate-50">
             Recent Searches
           </h2>
           {searches.length > 0 && (
-            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 text-xs font-semibold">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-700 text-slate-300 text-xs font-semibold">
               {searches.length}
             </span>
           )}
         </div>
-        <span className="text-xs text-zinc-400 dark:text-zinc-500">
+        <span className="text-xs text-slate-400">
           Last{" "}
           {searches.length === 1 ? "search" : `${searches.length} searches`}
         </span>
@@ -60,7 +60,7 @@ export default function RecentSearches({ searches }: RecentSearchesProps) {
       {searches.length === 0 && (
         <div className="px-6 py-12 text-center">
           <svg
-            className="w-8 h-8 text-zinc-300 dark:text-zinc-700 mx-auto mb-3"
+            className="w-8 h-8 text-slate-600 mx-auto mb-3"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -72,7 +72,7 @@ export default function RecentSearches({ searches }: RecentSearchesProps) {
               d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"
             />
           </svg>
-          <p className="text-sm text-zinc-400 dark:text-zinc-500">
+          <p className="text-sm text-slate-500">
             No searches yet.
           </p>
         </div>
@@ -82,24 +82,24 @@ export default function RecentSearches({ searches }: RecentSearchesProps) {
       {searches.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-zinc-50 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 text-xs uppercase tracking-wider">
+            <thead className="bg-slate-900 text-slate-500 text-xs uppercase tracking-wider">
               <tr>
                 <th className="px-6 py-3 text-left font-medium">Keyword</th>
                 <th className="px-6 py-3 text-left font-medium">Date</th>
                 <th className="px-6 py-3 text-right font-medium">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <tbody className="divide-y divide-slate-700">
               {searches.map((item) => (
                 <tr
                   key={item.id}
-                  className="group hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
+                  className="group hover:bg-slate-700/50 transition-colors"
                 >
                   {/* Keyword — navigates to /directories?keyword=slug */}
                   <td className="px-6 py-3">
                     <Link
                       href={`/directories?keyword=${keywordToSlug(item.keyword)}`}
-                      className="inline-flex items-center gap-2 font-medium text-zinc-800 dark:text-zinc-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors group/link"
+                      className="inline-flex items-center gap-2 font-medium text-blue-400 hover:text-blue-300 transition-colors duration-150 group/link"
                     >
                       <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0 opacity-0 group-hover/link:opacity-100 transition-opacity" />
                       {item.keyword}
@@ -107,7 +107,7 @@ export default function RecentSearches({ searches }: RecentSearchesProps) {
                   </td>
 
                   {/* Date */}
-                  <td className="px-6 py-3 text-zinc-400 dark:text-zinc-500 whitespace-nowrap">
+                  <td className="px-6 py-3 text-slate-500 whitespace-nowrap">
                     {formatDateSafe(item.createdAt, true)}
                   </td>
 

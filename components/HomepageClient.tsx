@@ -28,11 +28,20 @@ export default function HomepageClient({ initialWebsites }: HomepageClientProps)
     setLoading(true);
     setError(null);
     try {
-      console.log("Search started");
-      console.log("UI: Starting discovery for", searchTerm);
-      await recordSearchAction(searchTerm);
+      // Reverted to broader query that successfully returns results
+      const citationQuery = `best ${searchTerm} business directories citation sites`;
+      
+      console.log("Search started with citation intent:", citationQuery);
+      await recordSearchAction(citationQuery);
 
-      const response = await searchWebsitesAction(searchTerm);
+      // Mode is now locked to 'directory' for Citation Finder intent
+      const response = await searchWebsitesAction(citationQuery, 'directory');
+
+      console.log("--- Discovery Pipeline Debug ---");
+      console.log(`1. Search results fetched: ${response.discovered}`);
+      console.log(`2. URLs classified/saved: ${response.saved}`);
+      console.log(`3. Raw results from API: ${response.results.length}`);
+
       setSearchResults(response.results);
       setIsFallback(response.isFallback);
       setSource(response.source);
@@ -49,36 +58,37 @@ export default function HomepageClient({ initialWebsites }: HomepageClientProps)
   };
 
   return (
-    <div className="max-w-7xl mx-auto p-8 space-y-12">
-      {/* Search Input */}
+    <div className="min-h-screen bg-slate-900 text-slate-50 max-w-7xl mx-auto p-8 space-y-12">
+      {/* Search Section */}
       <section className="text-center space-y-4">
-        <h2 className="text-4xl font-extrabold tracking-tight">Find Your Next Directory</h2>
-        <p className="text-lg text-zinc-500">Discover high-authority, low-spam directories for your niche.</p>
+        <h2 className="text-4xl font-extrabold tracking-tight text-slate-50">Citation Finder</h2>
+        <p className="text-lg text-slate-300">Find the best directories to submit your business listing and boost local SEO.</p>
+
         <form onSubmit={handleSearch} className="flex gap-2 max-w-lg mx-auto mt-6">
           <input
             type="text"
             placeholder="Enter an industry (e.g. Lawyers, Roofing)..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="flex-grow px-4 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-grow px-4 py-2 rounded-xl border border-slate-700 bg-slate-800 text-slate-50 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-sm"
           />
           <button
             type="submit"
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+            className="px-6 py-2 bg-blue-600 text-slate-50 rounded-xl font-medium hover:bg-blue-700 transition-colors duration-200 shadow-md disabled:opacity-50"
             disabled={loading}
           >
             {loading ? 'Discovering...' : 'Discover'}
           </button>
         </form>
-        {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
 
         {searchResults.length > 0 && (
-          <div className="mt-6 rounded-2xl bg-zinc-50 dark:bg-zinc-950 p-4 text-left border border-zinc-200 dark:border-zinc-800">
-            <p className="text-sm text-zinc-500">Discovery source: <span className="text-zinc-900 dark:text-zinc-100 font-semibold">{source}</span></p>
-            <p className="text-sm text-zinc-500">URLs discovered: <span className="text-zinc-900 dark:text-zinc-100 font-semibold">{discoveredCount}</span></p>
-            <p className="text-sm text-zinc-500">URLs saved: <span className="text-zinc-900 dark:text-zinc-100 font-semibold">{savedCount}</span></p>
+          <div className="mt-6 rounded-xl bg-slate-800 p-4 text-left border border-slate-700 shadow-sm">
+            <p className="text-sm text-slate-400">Discovery source: <span className="text-slate-50 font-semibold">{source}</span></p>
+            <p className="text-sm text-slate-400">URLs discovered: <span className="text-slate-50 font-semibold">{discoveredCount}</span></p>
+            <p className="text-sm text-slate-400">URLs saved: <span className="text-slate-50 font-semibold">{savedCount}</span></p>
             {isFallback && (
-              <p className="text-sm text-yellow-600 dark:text-yellow-400 font-semibold mt-1">⚠️ Operating in Fallback/Mock mode</p>
+              <p className="text-sm text-yellow-400 font-semibold mt-1">⚠️ Operating in Fallback/Mock mode</p>
             )}
             <div className="flex justify-end mt-4">
               <ExportButton
@@ -92,8 +102,12 @@ export default function HomepageClient({ initialWebsites }: HomepageClientProps)
 
       {/* Stats and Results */}
       <section>
-        <DashboardStats websites={searchResults} />
-        <ResultsTable websites={searchResults} />
+        <div className="mb-8">
+          <DashboardStats websites={searchResults} />
+        </div>
+        <div className="mt-8">
+          <ResultsTable websites={searchResults} />
+        </div>
       </section>
     </div>
   );

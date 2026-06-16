@@ -31,7 +31,7 @@ export default function DeleteSearchButton({
       onClick={handleDelete}
       disabled={isPending}
       aria-label="Delete search"
-      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-zinc-400 dark:text-zinc-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors disabled:opacity-40 disabled:cursor-not-allowed opacity-0 group-hover:opacity-100"
+      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-zinc-400 dark:text-zinc-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed opacity-0 group-hover:opacity-100"
     >
       {isPending ? (
         <svg

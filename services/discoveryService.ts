@@ -22,6 +22,9 @@ export interface DiscoveryResult {
   title: string;
   description: string;
   sourceQuery: string;
+  type?: "listingOpportunity";
+  rankPosition?: number;
+  sourceProvider?: string;
 }
 
 export interface DiscoveryResponse {
@@ -31,6 +34,11 @@ export interface DiscoveryResponse {
   provider: string;
   discoveredAt: string;
   filteredCount?: number;
+  diagnostics?: {
+    blogs: string[];
+    directories: string[];
+    businessSites: string[];
+  };
 }
 
 /** Every provider must implement this contract. */
@@ -48,10 +56,11 @@ export interface DiscoveryProvider {
  */
 export function generateQueries(keyword: string): string[] {
   const k = keyword.trim().toLowerCase();
+
+  // Always generate queries for directory/listing opportunities
   return [
     `best ${k} business directories`,
     `${k} directory submit listing`,
-    `add your business to ${k} directories`,
     `top high da ${k} listing sites`,
     `free business directories for ${k}`
   ];
@@ -80,6 +89,12 @@ class MockProvider implements DiscoveryProvider {
         sourceQuery: query,
       },
       {
+        url: "https://www.example-business-site.com",
+        title: "Example Business Site",
+        description: "A high-quality business site discovered for testing.",
+        sourceQuery: query,
+      },
+      {
         url: "https://www.yellowpages.com",
         title: "Yellow Pages",
         description: "Local business directory with listings across all industries.",
@@ -104,9 +119,6 @@ export function shouldExcludeUrl(urlStr: string): boolean {
     const host = url.hostname.toLowerCase();
     
     const excludePatterns = [
-      "yelp.com",
-      "yellowpages.com",
-      "hotfrog.com",
       "facebook.com",
       "instagram.com",
       "linkedin.com",
@@ -115,29 +127,46 @@ export function shouldExcludeUrl(urlStr: string): boolean {
       "x.com",
       "youtube.com",
       "pinterest.com",
-      "cylex.com",
-      "cylex.us.com",
-      "foursquare.com",
-      "crunchbase.com",
-      "google.com",
+      "medium.com",
+      "blogspot.com",
+      "wordpress.com",
+      "wixsite.com",
+      "hubspot.com",
+      "healthline.com",
+      "forbes.com",
       "yahoo.com",
       "bing.com",
       "duckduckgo.com",
       "startpage.com",
       "brave.com",
-      "mapquest.com",
-      "tripadvisor.com",
-      "local.com",
       "superpages.com",
-      "manta.com",
-      "bbb.org",
       "angis.com",
       "chamberofcommerce.com",
       "bizjournals.com",
       "bloomberg.com",
+      "nytimes.com",
+      "cnn.com",
+      "webmd.com",
+      "mayoclinic.org",
+      "quora.com",
+      "reddit.com"
     ];
-    return excludePatterns.some(pattern => host.endsWith(pattern) || host.includes("." + pattern + ".") || host === pattern);
+
+    const matchedPattern = excludePatterns.find(pattern => 
+      host.endsWith(pattern) || host.includes("." + pattern + ".") || host === pattern
+    );
+
+    if (matchedPattern) {
+      console.log(`Excluded domain: ${host}`);
+      console.log(`Exclusion reason: Matched pattern "${matchedPattern}"`);
+      return true;
+    }
+
+    console.log(`Allowed domain: ${host}`);
+    return false;
   } catch {
+    console.log(`Excluded domain: ${urlStr}`);
+    console.log(`Exclusion reason: Invalid URL format`);
     return true; // Exclude invalid URLs
   }
 }
@@ -149,30 +178,56 @@ export function rateUrlPriority(urlStr: string): number {
     
     // De-prioritize paths that look like listings, categories, or deep directories
     const path = url.pathname.toLowerCase();
-    if (path.includes("/category/") || path.includes("/tag/") || path.includes("/search/") || path.includes("/directory/")) {
-      score -= 60;
+
+    // 1. Penalize Blogs/Articles/Informational content (Requirement 1 & 4)
+    const blogPatterns = ["/blog", "/article", "/news", "/guide", "/resource", "/wiki", "/help", "/docs", "/press", "/insights"];
+    if (blogPatterns.some(p => path.includes(p))) {
+      score -= 150; 
     }
-    if (path.includes("/blog/") || path.includes("/news/") || path.includes("/article/")) {
-      score -= 30;
+
+    // 1.5 Prioritize Directory and Listing patterns (Requirement 5)
+    const directoryPatterns = [
+      "directory", "listings", "yellowpages", "localbusiness", "business-listing", 
+      "fyple", "tupalo", "citation", "business-directory", "practo", "justdial", 
+      "sulekha", "asklaila", "indiacom", "brownbook", "yellowbot", "cylex", "kompass",
+      "healthgrades", "zocdoc", "avvo", "clutch", "g2"
+    ];
+    if (directoryPatterns.some(p => url.hostname.toLowerCase().includes(p) || path.includes(p))) {
+      score += 150;
     }
-    if (path.includes("/about") || path.includes("/contact") || path.includes("/services")) {
-      score += 15;
+
+    if (path.includes("/category/") || path.includes("/tag/") || path.includes("/search/") || path.includes("/directory/") || path.includes("/listing/")) {
+      score += 60; // Directories often use these patterns
     }
-    
-    // Prioritize root domain or very short path (highly likely to be official company homepage)
+
     const pathSegments = path.split("/").filter(Boolean);
-    if (pathSegments.length === 0) {
-      score += 30; // Root domain: https://example.com
-    } else if (pathSegments.length === 1) {
-      score += 15; // e.g. https://example.com/about or https://example.com/home
-    } else if (pathSegments.length > 3) {
-      score -= 25; // Deeply nested URL
+    if (pathSegments.length === 0 && !directoryPatterns.some(p => url.hostname.includes(p))) {
+      score -= 100; // Penalize individual business websites (Requirement 4)
     }
     
     return score;
   } catch {
     return 0;
   }
+}
+
+/**
+ * Scores a search result based on text-based business signals in Title/Snippet (Requirement 6)
+ */
+export function calculateResultSignals(result: DiscoveryResult): number {
+  let score = 0;
+  const text = (result.title + " " + result.description).toLowerCase();
+  
+  // Phone number pattern
+  if (/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/.test(text)) score += 20;
+  // Email pattern
+  if (text.includes("@") || text.includes("email")) score += 10;
+  // Address signals
+  if (/(?:street|ave|road|rd|suite|address|located)/i.test(text)) score += 15;
+  // Booking signals
+  if (/(?:book|appointment|schedule|quote|consultation)/i.test(text)) score += 25;
+
+  return score;
 }
 
 export function decodeRedirectUrl(href: string): string | null {
@@ -657,6 +712,7 @@ export async function discoverWebsites(
     throw new Error("keyword must not be empty");
   }
 
+  // Always generate queries for directory/listing opportunities
   const queries = generateQueries(keyword);
   console.log("[Discovery] Provider selected for runtime search:", provider.name);
   console.log("[Discovery] Search queries:", queries);
@@ -677,15 +733,27 @@ export async function discoverWebsites(
   // Remove duplicates, excluded domains and invalid URLs
   const seen = new Set<string>();
   let filteredCount = 0;
+  const blogs: string[] = [];
+  const directories: string[] = [];
+  const businessSites: string[] = [];
+
   const results = rawResults.filter((r) => {
     try {
       const normalized = normalizeUrl(r.url);
-      if (shouldExcludeUrl(normalized)) {
-        filteredCount++;
-        return false;
-      }
+      if (shouldExcludeUrl(normalized)) return false;
       if (seen.has(normalized)) return false;
       seen.add(normalized);
+
+      // Category detection for diagnostics
+      const path = new URL(normalized).pathname.toLowerCase();
+      if (["/blog", "/article", "/news", "/wiki"].some(p => path.includes(p))) {
+        blogs.push(normalized);
+      } else if (normalized.includes("directory") || normalized.includes("yelp") || normalized.includes("listing")) {
+        directories.push(normalized);
+      } else {
+        businessSites.push(normalized);
+      }
+
       return true;
     } catch {
       filteredCount++;
@@ -693,17 +761,32 @@ export async function discoverWebsites(
     }
   });
 
-  // Sort by priority (company website / business domain)
-  results.sort((a, b) => rateUrlPriority(b.url) - rateUrlPriority(a.url));
+  // Sort by priority combining URL structure and text signals
+  results.sort((a, b) => {
+    const scoreA = rateUrlPriority(a.url) + calculateResultSignals(a);
+    const scoreB = rateUrlPriority(b.url) + calculateResultSignals(b);
+    return scoreB - scoreA;
+  });
 
-  console.log("[Discovery] Discovered URLs:", results.map((item) => item.url));
+  // Apply rank position based on the final prioritized order
+  const rankedResults = results.map((result, index) => ({
+    ...result,
+    type: 'listingOpportunity' as const, // Always listing opportunity
+    rankPosition: index + 1,
+    sourceProvider: activeProviderName
+  }));
 
   return {
     keyword,
     queries,
-    results,
+    results: rankedResults,
     provider: activeProviderName,
     discoveredAt: formatDateSafe(new Date()),
     filteredCount,
+    diagnostics: {
+      blogs,
+      directories,
+      businessSites
+    }
   };
 }
