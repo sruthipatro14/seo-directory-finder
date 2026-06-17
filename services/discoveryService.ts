@@ -736,6 +736,8 @@ function getActiveProviders(): DiscoveryProvider[] {
     registerProvider(new DirectoryFallbackProvider());
   }
 
+  console.log("[Discovery] Active providers:", providerRegistry.map(p => p.name));
+
   return providerRegistry;
 }
 

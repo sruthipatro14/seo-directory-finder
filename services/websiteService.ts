@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { Prisma, Website, DaCategory } from "@prisma/client";
 import { normalizeUrl } from "./urlUtils";
 
+/**
+ * Exported type for external services (like the pipeline) to use for creation/upsert.
+ */
+export type WebsiteInput = Prisma.WebsiteCreateInput;
+
 // ─── Read ────────────────────────────────────────────────────────────────────
 
 /**

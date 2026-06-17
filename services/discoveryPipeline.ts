@@ -290,20 +290,9 @@ async function processUrl(
     type,
     rankPosition,
     sourceProvider,
-    hasAddBusiness,
-    hasSubmitListing,
-    hasClaimListing,
-    hasCreateProfile,
-    listingConfidence,
-    listingCapable,
-    listingOpportunityScore,
-    positiveSignalsFound,
-    negativeSignalsFound,
-    isRealDirectory,
-    filterReason,
-    directoryQualityScore,
-    sortReason,
-    selfSubmissionDirectory
+    category: classification.industry,
+    supportsSelfSubmission,
+    matchReason
   };
 }
 
