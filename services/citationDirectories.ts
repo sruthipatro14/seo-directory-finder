@@ -7,6 +7,7 @@ export interface SeedDirectory {
   verificationMethod: string;
   supportsSelfSubmission: boolean;
   industryTags: string[];
+  matchReason?: string; // Added for consistent typing with PipelineResult
 }
 
 export const citationDirectories: SeedDirectory[] = [

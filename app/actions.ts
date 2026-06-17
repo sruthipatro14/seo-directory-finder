@@ -2,10 +2,11 @@
 
 import { searchWebsites } from "@/services/websiteService";
 import { saveSearch } from "@/services/searchHistoryService";
-import { runDiscoveryPipeline } from "@/services/discoveryPipeline";
+import { runDiscoveryPipeline, PipelineResult } from "@/services/discoveryPipeline";
 import { citationDirectories } from "@/services/citationDirectories";
 import { classifyIndustry } from "@/services/industryClassifier";
 import type { Website } from "@prisma/client";
+import { normalizeUrl } from "@/services/urlUtils";
 
 export interface SearchActionResponse {
   results: Website[];

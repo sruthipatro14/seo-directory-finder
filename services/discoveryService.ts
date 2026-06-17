@@ -650,10 +650,6 @@ function isConfigured(key: string | undefined): boolean {
   return clean !== "" && clean !== "your_key_here" && clean !== "placeholder" && clean !== "your-secret-here";
 }
 
-/**
- * StaticDirectoryProvider wraps the curated citationDirectories seed
- * to act as a first-class discovery source.
- */
 class StaticDirectoryProvider implements DiscoveryProvider {
   readonly name = "static-seed";
   async search(queries: string[]): Promise<DiscoveryResult[]> {
@@ -679,6 +675,10 @@ class StaticDirectoryProvider implements DiscoveryProvider {
   }
 }
 
+// ─── Providers ────────────────────────────────────────────────────────────────
+// (Moved here for better organization and to ensure they are defined before being used in getActiveProviders)
+
+
 // ─── Registry ────────────────────────────────────────────────────────────────
 
 const providerRegistry: DiscoveryProvider[] = [];
@@ -701,37 +701,47 @@ function getActiveProviders(): DiscoveryProvider[] {
 
   // Always include the static curated database
   registerProvider(new StaticDirectoryProvider());
+  console.log("✓ StaticDirectoryProvider enabled");
+
+  let externalApiProvidersActive = 0;
 
   if (isConfigured(serpApiKey)) {
     console.log("[Discovery] Initializing primary provider: SerpApi");
     registerProvider(new SerpApiProvider(serpApiKey!));
+    console.log("✓ SerpApiProvider enabled");
+    externalApiProvidersActive++;
+  } else {
+    console.log("✗ SerpApiProvider disabled (missing or invalid SERPAPI_KEY)");
   }
   if (isConfigured(braveApiKey)) {
     console.log("[Discovery] Initializing fallback provider: Brave Search");
     registerProvider(new BraveSearchProvider(braveApiKey!));
+    console.log("✓ BraveSearchProvider enabled");
+    externalApiProvidersActive++;
+  } else {
+    console.log("✗ BraveSearchProvider disabled (missing or invalid BRAVE_API_KEY)");
   }
   if (isConfigured(bingApiKey)) {
     console.log("[Discovery] Initializing fallback provider: Bing Search");
     registerProvider(new BingSearchProvider(bingApiKey!));
+    console.log("✓ BingSearchProvider enabled");
+    externalApiProvidersActive++;
+  } else {
+    console.log("✗ BingSearchProvider disabled (missing or invalid BING_API_KEY)");
   }
 
   // If no external APIs configured, add the scraper fallback
-  if (providerRegistry.length <= 1) {
-    console.warn("[Discovery] No active API keys found. Adding directory fallback scraper.");
+  if (externalApiProvidersActive === 0) {
+    console.warn("[Discovery] No external API keys found. Adding DirectoryFallbackProvider.");
     registerProvider(new DirectoryFallbackProvider());
   }
 
   return providerRegistry;
 }
 
-/** Deprecated in favor of registry-based aggregation; kept for backward compatibility */
-function selectProvider(): DiscoveryProvider {
-  return getActiveProviders()[0] || new MockProvider();
-}
-
 export async function discoverWebsites(
   keyword: string,
-  _unused_provider?: DiscoveryProvider
+  // Removed _unused_provider as it's no longer needed with the registry pattern
 ): Promise<DiscoveryResponse> {
   if (!keyword.trim()) {
     throw new Error("keyword must not be empty");

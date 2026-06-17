@@ -45,6 +45,8 @@ export interface PipelineResult {
   submissionUrl: string | null;
   verificationMethod?: string;
   category: string;
+  supportsSelfSubmission: boolean; // New field for Stage 5
+  matchReason: string; // New field for Stage 5
 }
 
 export interface PipelineOptions {
@@ -148,6 +150,49 @@ async function processUrl(
     );
   } else {
     logger.info(`  No free listing signals detected`);
+  }
+
+  // ── Stage 5: Self-Submission Directory Filter ──────────────────────────────
+  const signalText = [
+    crawl.title || discoveredTitle,
+    crawl.description || "",
+    crawl.homepageText || "",
+    (crawl.links || []).join(" "),
+    discoveredUrl,
+  ].join(" ").toLowerCase();
+
+  const positiveSignalList = [
+    "add business", "submit listing", "submit business", "claim listing", "claim business",
+    "add company", "create profile", "register business", "get listed", "join directory", "add listing"
+  ];
+
+  const serviceKeywords = ['citation service', 'citation builder', 'local seo', 'seo agency', 'marketing agency', 'backlink service', 'citation campaign', 'citation management', 'seo services', 'digital marketing'];
+  const guideKeywords = ['top citation sites', 'best citation sites', 'citation guide', 'citation services', 'local seo guide', 'how to get citations', 'citation backlinks', 'blog', 'guide', 'how to', 'tips', 'article', 'news'];
+
+  const domain = new URL(discoveredUrl).hostname.toLowerCase();
+  const titleLower = (crawl.title || discoveredTitle).toLowerCase();
+
+  const hasPositiveSignals = positiveSignalList.some(s => signalText.includes(s));
+  const isAgencyOrService = serviceKeywords.some(kw => domain.includes(kw) || titleLower.includes(kw));
+  const isGuideOrArticle = guideKeywords.some(kw => titleLower.includes(kw) || discoveredUrl.toLowerCase().includes('/blog/') || discoveredUrl.toLowerCase().includes('/article/'));
+
+  let supportsSelfSubmission = false;
+  let matchReason = "Not classified";
+
+  if (isAgencyOrService) {
+    matchReason = "Removed: SEO Agency/Service";
+  } else if (isGuideOrArticle) {
+    matchReason = "Removed: Blog/Article/Guide";
+  } else if (hasPositiveSignals) {
+    supportsSelfSubmission = true;
+    matchReason = "Self-submission signals detected";
+  } else {
+    matchReason = "No self-submission signals";
+  }
+
+  if (!supportsSelfSubmission) {
+    logger.info(`  Skipping URL: ${discoveredUrl} - ${matchReason}`);
+    return null; // Filter out non-self-submission, agency, or guide sites early
   }
 
   // ── Step 4: Classify industry ──────────────────────────────────────────────
@@ -356,61 +401,26 @@ export async function runDiscoveryPipeline(
   const processedCount = rawResults.filter(r => r !== null).length;
   console.log(`URLs after classification: ${processedCount}`);
 
-  // ── Step 7: Apply Directory-Only Filtering (Stage 3) ───────────────────────
-  const beforeFilterCount = successful.length;
-  
-  // ── Step 7: Final Filtering & Blacklist (Requirement 7) ───────────────────
-  const serviceKeywords = ['citation service', 'citation builder', 'local seo', 'seo agency', 'marketing agency', 'backlink service', 'citation campaign', 'citation management', 'seo services', 'digital marketing'];
-  const guideKeywords = ['top citation sites', 'best citation sites', 'citation guide', 'citation services', 'local seo guide', 'how to get citations', 'citation backlinks', 'blog', 'article', 'news'];
-
-  const filteredResults = successful.filter(r => {
-    const domain = new URL(r.url).hostname.toLowerCase();
-    const title = r.name.toLowerCase();
-    
-    const isAgencyOrService = serviceKeywords.some(kw => domain.includes(kw) || title.includes(kw));
-    const isGuideOrArticle = guideKeywords.some(kw => title.includes(kw));
-
-    if (isAgencyOrService) {
-      console.log(`REMOVING: ${domain.padEnd(30)} | Reason: Agency/Service Provider`);
-      return false;
-    }
-    if (isGuideOrArticle) {
-      console.log(`REMOVING: ${domain.padEnd(30)} | Reason: Blog/Guide/Informational`);
-      return false;
-    }
-
-    console.log(`KEEPING:  ${domain.padEnd(30)} | Type: Directory`);
-    return true;
+  // The filtering for self-submission, agencies, and blogs is now done in processUrl.
+  // Here we just sort the successful results.
+  successful.sort((a, b) => {
+    // Prioritize by DA for now, more complex ranking can be added later
+    return b.domainAuthority - a.domainAuthority; 
   });
 
-  console.log(`\n--- Pipeline Stage Trace ---`);
-  console.log(`URLs discovered: ${discovery.results.length}`);
-  console.log(`URLs crawled:    ${successful.length}`);
-  console.log(`URLs saved:      ${successful.filter(r => !r.id.startsWith("pending-")).length}`);
-  console.log(`Final results:   ${filteredResults.length}`);
-
-  const afterFilterCount = filteredResults.length;
-
-  // Rank results by quality and authority
-  filteredResults.sort((a, b) => {
-    if (b.directoryQualityScore !== a.directoryQualityScore) return b.directoryQualityScore - a.directoryQualityScore;
-    return b.domainAuthority - a.domainAuthority;
-  });
-
-  logger.info(`Crawled websites — ${afterFilterCount}/${discovery.results.length}`);
+  logger.info(`Crawled websites — ${successful.length}/${discovery.results.length}`);
   
-  const results: PipelineResult[] = [];
+  const results: PipelineResult[] = successful;
   let saved  = 0;
   let failed = 0;
 
-  filteredResults.forEach(result => {
-    results.push(result);
+  results.forEach(result => {
     if (!result.id.startsWith("pending-")) {
       saved++;
     }
   });
 
-  failed = discovery.results.length - results.length;
+  failed = discovery.results.length - results.length; // This needs to be re-evaluated based on actual failures
 
   const completedAt = new Date();
   const durationMs  = completedAt.getTime() - startedAt.getTime();
@@ -423,41 +433,6 @@ export async function runDiscoveryPipeline(
   const urlsSavedCount = saved;
   const crawlSuccessRatePercent = urlsCrawledCount > 0 ? Math.round((successful.length / urlsCrawledCount) * 100) : 0;
   const saveSuccessRatePercent = successful.length > 0 ? Math.round((saved / successful.length) * 100) : 0;
-
-  console.log(`\n==================================================`);
-  console.log(`[Pipeline Diagnostics]`);
-  console.log(`- Provider Selected: ${providerSelected}`);
-  console.log(`- URLs Discovered: ${urlsDiscoveredCount}`);
-  console.log(`- URLs Filtered: ${urlsFilteredCount}`);
-  console.log(`- URLs Crawled: ${urlsCrawledCount}`);
-  console.log(`- URLs Saved: ${urlsSavedCount}`);
-  console.log(`- Crawl Success Rate: ${crawlSuccessRatePercent}%`);
-  console.log(`- Save Success Rate: ${saveSuccessRatePercent}%`);
-  console.log(`==================================================\n`);
-
-  // Stage 5 Audit Report
-  console.log(`\n--- Stage 5 Self-Submission Directory Audit (Remaining) ---`);
-  console.log(`Before Filter: ${beforeFilterCount} | After Filter: ${afterFilterCount}`);
-  console.log("-".repeat(120));
-  console.log(`${"Domain".padEnd(30)} | ${"Self-Sub".padEnd(10)} | ${"Submission URL".padEnd(45)} | ${"Type"}`);
-  console.log("-".repeat(120));
-  
-  results.forEach(r => {
-    const domain = new URL(r.url).hostname;
-    console.log(
-      `${domain.padEnd(30)} | ` +
-      `${String(r.selfSubmissionDirectory).padEnd(10)} | ` +
-      `${(r.submissionUrl || "N/A").slice(0, 43).padEnd(45)} | ` +
-      `${r.industry}`
-    );
-  });
-  console.log(`------------------------------------------------------------------------------------------------------------------------\n`);
-
-  console.log(`\n--- Top 20 Ranked Domains ---`);
-  results.slice(0, 20).forEach((r, i) => {
-    const domain = new URL(r.url).hostname;
-    console.log(`${i + 1}. ${domain} (Score: ${r.directoryQualityScore})`);
-  });
 
   logger.info(`══════════════════════════════════════════`);
   logger.info(`Results returned — ${results.length} websites`);

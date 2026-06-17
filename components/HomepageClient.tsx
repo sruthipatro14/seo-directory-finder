@@ -35,7 +35,7 @@ export default function HomepageClient({ initialWebsites }: HomepageClientProps)
       await recordSearchAction(citationQuery);
 
       // Mode is now locked to 'directory' for Citation Finder intent
-      const response = await searchWebsitesAction(citationQuery, 'directory');
+      const response = await searchWebsitesAction(citationQuery); // Removed 'directory' parameter
 
       console.log("--- Discovery Pipeline Debug ---");
       console.log(`1. Search results fetched: ${response.discovered}`);
