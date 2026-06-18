@@ -151,13 +151,36 @@ export async function crawlWebsite(
   try {
     const browser = await getBrowser();
 
-    context = await browser.newContext({
-      userAgent,
-      viewport: defaultCrawlerConfig.viewport,
-      extraHTTPHeaders: getRealisticHeaders(url),
-    });
+  context = await browser.newContext({
+  userAgent,
+  viewport: defaultCrawlerConfig.viewport,
+
+  locale: "en-US",
+  timezoneId: "America/New_York",
+
+  extraHTTPHeaders: {
+    ...getRealisticHeaders(url),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+   },
+});
 
     const page = await context.newPage();
+
+// Anti-bot evasion
+await page.addInitScript(() => {
+  Object.defineProperty(navigator, "webdriver", {
+    get: () => false,
+  });
+
+  Object.defineProperty(navigator, "languages", {
+    get: () => ["en-US", "en"],
+  });
+
+  Object.defineProperty(navigator, "plugins", {
+    get: () => [1, 2, 3, 4, 5],
+  });
+});
 
     // Navigate to the site with retry logic and backoff strategy
     let attempts = 0;
@@ -167,30 +190,48 @@ export async function crawlWebsite(
     let lastError = null;
 
     while (attempts < maxAttempts) {
-      try {
-        attempts++;
-        response = await page.goto(url, {
-          waitUntil: "domcontentloaded",
-          timeout:   timeoutMs,
-        });
-        if (response && response.status() >= 400) {
-          throw new Error(`HTTP status ${response.status()}`);
-        }
-        lastError = null;
-        break; // Success!
-      } catch (err) {
-        lastError = err;
-        if (attempts < maxAttempts) {
-          console.warn(`[Crawler] Attempt ${attempts} failed for ${url}: ${err instanceof Error ? err.message : String(err)}. Retrying in ${delay}ms...`);
-          await page.waitForTimeout(delay);
-          delay *= 2; // exponential backoff
-        }
-      }
+  try {
+    attempts++;
+
+    response = await page.goto(url, {
+      waitUntil: "networkidle",
+      timeout: timeoutMs,
+    });
+
+    console.log(
+      `[Crawler] ${url} -> Status: ${response?.status()}`
+    );
+
+    console.log(
+      `[Crawler] Final URL: ${page.url()}`
+    );
+
+    if (response && response.status() >= 500) {
+      throw new Error(`HTTP status ${response.status()}`);
     }
 
-    if (lastError) {
-      throw lastError;
+    lastError = null;
+    break;
+  } catch (err) {
+    lastError = err;
+
+    if (attempts < maxAttempts) {
+      console.warn(
+        `[Crawler] Attempt ${attempts} failed for ${url}: ${
+          err instanceof Error ? err.message : String(err)
+        }. Retrying in ${delay}ms...`
+      );
+
+      await page.waitForTimeout(delay);
+      delay *= 2;
     }
+  }
+}
+
+if (lastError) {
+  throw lastError;
+}
+
 
     // 1. Extract Page Title
     const title = await page.title();
@@ -229,6 +270,16 @@ export async function crawlWebsite(
     const freeOrPaid = detectPricing(searchableText);
     const canSubmitListing = detectedKeywords.length > 0;
     const freeListing = detectedKeywords.includes("Free Listing");
+
+    console.log({
+  url,
+  title,
+  status: response?.status(),
+  bodyLength: homepageText.length,
+  detectedKeywords,
+  canSubmitListing,
+  freeListing,
+}); 
 
     let submissionUrl = "";
     if (canSubmitListing) {

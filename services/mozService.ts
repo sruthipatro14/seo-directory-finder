@@ -1,11 +1,6 @@
 // services/mozService.ts
-//
-// Fetches Domain Authority and Spam Score from the Moz API.
 
 import crypto from "crypto";
-import { logger } from "./logger";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface MozMetrics {
   domainAuthority: number;
@@ -17,17 +12,22 @@ export interface MozProvider {
   getMetrics(domain: string): Promise<MozMetrics>;
 }
 
-// ─── Configuration ────────────────────────────────────────────────────────────
-
 const MOZ_ACCESS_ID = process.env.MOZ_ACCESS_ID;
 const MOZ_SECRET_KEY = process.env.MOZ_SECRET_KEY;
 
-// ─── Utils ────────────────────────────────────────────────────────────────────
+console.log(
+  MOZ_ACCESS_ID && MOZ_SECRET_KEY
+    ? "Using Moz API"
+    : "Using Mock Moz Provider"
+);
 
-/** Normalizes a URL string into a root domain for DA lookup. */
+
 function normalizeDomain(input: string): string {
   try {
-    const url = input.includes("://") ? new URL(input) : new URL(`http://${input}`);
+    const url = input.includes("://")
+      ? new URL(input)
+      : new URL(`https://${input}`);
+
     return url.hostname.replace(/^www\./, "");
   } catch {
     return input.trim();
@@ -35,25 +35,15 @@ function normalizeDomain(input: string): string {
 }
 
 function isValidDomain(domain: string): boolean {
-  return /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/.test(domain);
+  return /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain);
 }
 
-// Global promise chain to serialize Moz requests (1 every 10s for free tier)
-let mozRequestQueue = Promise.resolve();
-const MOZ_THROTTLE_MS = 10500;
-
-// ─── Providers ────────────────────────────────────────────────────────────────
-
-/**
- * Returns simulated data for local development.
- */
 class MockMozProvider implements MozProvider {
   readonly name = "mock";
 
   async getMetrics(domain: string): Promise<MozMetrics> {
-    await new Promise((r) => setTimeout(r, 200)); // Sim latency
-    
     const seed = domain.length;
+
     return {
       domainAuthority: Math.min(100, Math.max(1, seed * 3)),
       spamScore: seed % 5,
@@ -61,75 +51,87 @@ class MockMozProvider implements MozProvider {
   }
 }
 
-/**
- * Real-world Moz API implementation using Signed Authentication (v1).
- */
 class MozApiProvider implements MozProvider {
   readonly name = "moz-api";
 
-  constructor(private accessId: string, private secretKey: string) {}
+  constructor(
+    private accessId: string,
+    private secretKey: string
+  ) {}
 
   async getMetrics(domain: string): Promise<MozMetrics> {
-    return (mozRequestQueue = mozRequestQueue.then(async () => {
-      const expires = Math.floor(Date.now() / 1000) + 300;
-      const stringToSign = `${this.accessId}\n${expires}`;
-      const signature = crypto
-        .createHmac("sha1", this.secretKey)
-        .update(stringToSign)
-        .digest("base64");
+    const expires = Math.floor(Date.now() / 1000) + 300;
 
-      const query = encodeURIComponent(domain);
-      const url = `https://lsapi.moz.com/linkscape/url-metrics/${query}?Cols=68719476736&AccessID=${this.accessId}&Expires=${expires}&Signature=${encodeURIComponent(signature)}`;
+    const stringToSign = `${this.accessId}\n${expires}`;
 
-      try {
-        const response = await fetch(url);
+    const signature = crypto
+      .createHmac("sha1", this.secretKey)
+      .update(stringToSign)
+      .digest("base64");
 
-        if (response.status === 429) {
-          throw new Error("Moz API Rate Limit exceeded (429).");
-        }
+    const url =
+      `https://lsapi.moz.com/linkscape/url-metrics/${encodeURIComponent(
+        domain
+      )}` +
+      `?Cols=68719476736` +
+      `&AccessID=${this.accessId}` +
+      `&Expires=${expires}` +
+      `&Signature=${encodeURIComponent(signature)}`;
 
-        if (!response.ok) {
-          throw new Error(`Moz API error: ${response.status}`);
-        }
+    console.log("Calling Moz API:", domain);
 
-        const data = await response.json();
-        
-        // Enforce the 10s delay for the next item in the queue
-        await new Promise(r => setTimeout(r, MOZ_THROTTLE_MS));
+    const response = await fetch(url);
 
-        return {
-          domainAuthority: Math.round(data.pda || 0),
-          spamScore: Math.round(data.fsq || 0),
-        };
-      } catch (err) {
-        logger.error(`[MozProvider] Request failed:`, err);
-        // Release queue after a shorter wait on failure
-        await new Promise(r => setTimeout(r, 2000));
-        throw err;
-      }
-    }));
+    if (!response.ok) {
+      throw new Error(`Moz API Error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    console.log("Moz Response:", data);
+
+    return {
+      domainAuthority: Math.round(data.pda || 0),
+      spamScore: Math.round(data.fsq || 0),
+    };
   }
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+
+
+export async function getMozMetrics(
+  urlOrDomain: string
+): Promise<MozMetrics> {
+  const domain = normalizeDomain(urlOrDomain);
+
+  console.log("================================");
+  console.log("Input URL:", urlOrDomain);
+  console.log("Normalized Domain:", domain);
+  console.log("Provider:", activeProvider.name);
+  console.log("================================");
+
+  if (!isValidDomain(domain)) {
+    throw new Error(`Invalid domain: ${domain}`);
+  }
+
+  return activeProvider.getMetrics(domain);
+}
+
+export async function getDomainAuthority(
+  domain: string
+): Promise<number> {
+  const metrics = await getMozMetrics(domain);
+  return metrics.domainAuthority;
+}
+
+export async function getSpamScore(
+  domain: string
+): Promise<number> {
+  const metrics = await getMozMetrics(domain);
+  return metrics.spamScore;
+}
 
 const activeProvider: MozProvider =
   MOZ_ACCESS_ID && MOZ_SECRET_KEY
     ? new MozApiProvider(MOZ_ACCESS_ID, MOZ_SECRET_KEY)
     : new MockMozProvider();
-
-export async function getMozMetrics(urlOrDomain: string): Promise<MozMetrics> {
-  const domain = normalizeDomain(urlOrDomain);
-  if (!isValidDomain(domain)) throw new Error(`Invalid domain format: "${domain}"`);
-  return activeProvider.getMetrics(domain);
-}
-
-export async function getDomainAuthority(domain: string): Promise<number> {
-  const metrics = await getMozMetrics(domain);
-  return metrics.domainAuthority;
-}
-
-export async function getSpamScore(domain: string): Promise<number> {
-  const metrics = await getMozMetrics(domain);
-  return metrics.spamScore;
-}

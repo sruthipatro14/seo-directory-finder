@@ -13,7 +13,7 @@
 //     ├── Step 6: createWebsite()        — persist to database (skipped if DB down)
 //     └── Return: PipelineReport
 
-import { discoverWebsites }           from "@/services/discoveryService";
+import { discoverWebsites, scoreDirectoryCandidate } from "@/services/discoveryService";
 import { crawlWebsite, closeBrowser } from "@/services/crawlerService";
 import { classifyIndustry }           from "@/services/industryClassifier";
 import { saveDiscoveredWebsite }      from "@/services/websiteService";
@@ -47,6 +47,8 @@ export interface PipelineResult {
   category: string;
   supportsSelfSubmission: boolean; // New field for Stage 5
   matchReason: string; // New field for Stage 5
+  citationScore: number;
+  isAggregator: boolean;
 }
 
 export interface PipelineOptions {
@@ -163,18 +165,145 @@ async function processUrl(
 
   const positiveSignalList = [
     "add business", "submit listing", "submit business", "claim listing", "claim business",
-    "add company", "create profile", "register business", "get listed", "join directory", "add listing"
+    "add company", "create profile", "register business", "register your business", "join directory",
+    "add listing", "list your business", "business owner", "for business owners", "business profile",
+    "directory listing", "business directory", "advertise your business", "get listed", "business signup",
+    "create business account", "add your business", "business registration", "submit company", "claim your profile",
+    "company profile", "local business listing", "create listing", "add place", "claim this business"
   ];
 
-  const serviceKeywords = ['citation service', 'citation builder', 'local seo', 'seo agency', 'marketing agency', 'backlink service', 'citation campaign', 'citation management', 'seo services', 'digital marketing'];
-  const guideKeywords = ['top citation sites', 'best citation sites', 'citation guide', 'citation services', 'local seo guide', 'how to get citations', 'citation backlinks', 'blog', 'guide', 'how to', 'tips', 'article', 'news'];
+  const submissionPatterns = [
+    "add-business", "add-listing", "submit-listing", "claim-business", "claim-listing",
+    "business-owners", "for-business", "for-professionals", "join", "register",
+    "signup", "advertise", "get-listed"
+  ];
 
+ const serviceKeywords = [
+  "citation service",
+  "citation builder",
+  "local seo",
+  "seo agency",
+  "marketing agency",
+  "backlink service",
+  "citation campaign",
+  "citation management",
+  "seo services",
+  "digital marketing",
+  "best citation sites",
+  "top citation sites",
+  "citation list",
+  "directory submission services",
+];
   const domain = new URL(discoveredUrl).hostname.toLowerCase();
+  
+  const urlLower = discoveredUrl.toLowerCase();
   const titleLower = (crawl.title || discoveredTitle).toLowerCase();
+  
+  const excludedDomains = [
+  "thryv.com",
+  "justduckydigital.com",
+  "thm2g.com",
+  "truwayz.com",
+  "citationforge.com",
+  "iimskills.com",
+  "saertechnologies.com",
+  "tendtoread.com",
+  "springssmallbusinessmarketing.com",
+];
+
+
+if (excludedDomains.some(d => domain.includes(d))) {
+  logger.info(`Skipping excluded domain: ${domain}`);
+  return null;
+}
+const agencyIndicators = [
+  "marketing",
+  "seo",
+  "digital agency",
+  "advertising",
+  "lead generation",
+  "web design",
+  "branding",
+  "consulting",
+  "business growth",
+  "local seo"
+];
+
+const pageText = [
+  titleLower,
+  crawl.description?.toLowerCase() || "",
+  crawl.homepageText?.toLowerCase().slice(0, 5000) || ""
+].join(" ");
+
+if (agencyIndicators.some(x => pageText.includes(x))) {
+  logger.info(`Skipping agency site: ${domain}`);
+  return null;
+}
+
+  // Recommendation/article sites to exclude
+
+
+const directorySignals = [
+  "business directory",
+  "directory listing",
+  "add business",
+  "submit listing",
+  "claim listing",
+  "claim business",
+  "business profile",
+  "company profile"
+];
+
+const looksLikeDirectory =
+  directorySignals.some(x => signalText.includes(x));
+
+if (!looksLikeDirectory) {
+  logger.info(`Skipping non-directory site: ${domain}`);
+  return null;
+}
+
+// Skip known recommendation sites
+if (excludedDomains.some(d => domain.includes(d))) {
+  logger.info(`Skipping recommendation site: ${domain}`);
+  return null;
+}
+
+// Article/listicle indicators
+const articleIndicators = [
+  "best citation sites",
+  "top citation sites",
+  "citation sites list",
+  "directory list",
+  "local citation sites",
+  "citation websites",
+  "business directories list",
+  "top business directories",
+];
+
+// Skip list articles
+if (articleIndicators.some(x => titleLower.includes(x))) {
+  logger.info(`Skipping article page: ${titleLower}`);
+  return null;
+}
 
   const hasPositiveSignals = positiveSignalList.some(s => signalText.includes(s));
+  const hasSubmissionLink = (crawl.links || []).some(link =>
+    submissionPatterns.some(pattern => link.toLowerCase().includes(pattern))
+  );
+
   const isAgencyOrService = serviceKeywords.some(kw => domain.includes(kw) || titleLower.includes(kw));
-  const isGuideOrArticle = guideKeywords.some(kw => titleLower.includes(kw) || discoveredUrl.toLowerCase().includes('/blog/') || discoveredUrl.toLowerCase().includes('/article/'));
+
+  const isGuideOrArticle =
+  urlLower.includes("/blog/") ||
+  urlLower.includes("/article/") ||
+  urlLower.includes("/articles/") ||
+  urlLower.includes("/news/") ||
+  urlLower.includes("/guides/") ||
+  urlLower.includes("/resources/") ||
+  urlLower.includes("/top-") ||
+  urlLower.includes("/best-") ||
+  urlLower.includes("/list-") ||
+  urlLower.includes("/citation-sites");
 
   let supportsSelfSubmission = false;
   let matchReason = "Not classified";
@@ -183,12 +312,56 @@ async function processUrl(
     matchReason = "Removed: SEO Agency/Service";
   } else if (isGuideOrArticle) {
     matchReason = "Removed: Blog/Article/Guide";
-  } else if (hasPositiveSignals) {
+  } else if (hasPositiveSignals || hasSubmissionLink) {
     supportsSelfSubmission = true;
-    matchReason = "Self-submission signals detected";
+    matchReason = hasSubmissionLink
+      ? "Submission link detected"
+      : "Self-submission signals detected";
   } else {
     matchReason = "No self-submission signals";
   }
+
+  const aggregatorDomains = [
+    "yelp.com",
+    "facebook.com",
+    "bing.com",
+    "apple.com",
+    "bbb.org",
+    "yellowpages.com",
+    "foursquare.com",
+    "mapquest.com"
+  ];
+
+  const isAggregator = aggregatorDomains.some(d =>
+    domain.includes(d)
+  );
+
+  let citationScore = 0;
+  if (hasPositiveSignals) citationScore += 5;
+  if (hasSubmissionLink) citationScore += 5;
+  if (submissionUrl) citationScore += 10;
+  if (supportsSelfSubmission) citationScore += 10;
+
+  if (domain.includes("directory")) citationScore += 3;
+  if (domain.includes("listing")) citationScore += 3;
+  if (domain.includes("business")) citationScore += 2;
+
+  if (isAggregator) {
+    citationScore += 8;
+  }
+
+  console.log({
+    url: discoveredUrl,
+    positive: hasPositiveSignals,
+    submissionLink: hasSubmissionLink,
+    agency: isAgencyOrService,
+    guide: isGuideOrArticle,
+    reason: matchReason
+  });
+
+  console.log(
+    `[Stage5] ${discoveredUrl} | positive=${hasPositiveSignals} | agency=${isAgencyOrService} | guide=${isGuideOrArticle} | result=${supportsSelfSubmission}`
+  );
 
   if (!supportsSelfSubmission) {
     logger.info(`  Skipping URL: ${discoveredUrl} - ${matchReason}`);
@@ -292,7 +465,9 @@ async function processUrl(
     sourceProvider,
     category: classification.industry,
     supportsSelfSubmission,
-    matchReason
+    matchReason,
+    citationScore,
+    isAggregator
   };
 }
 
@@ -314,8 +489,30 @@ export async function runDiscoveryPipeline(
   let discovery;
   try {
     discovery = await discoverWebsites(keyword, undefined);
+
+    // Pre-crawl ranking: directoryScore DESC, search rank ASC
+    discovery.results = discovery.results.map((r, i) => ({
+      ...r,
+      directoryScore: scoreDirectoryCandidate(r.url),
+      rankPosition: i + 1
+    })).sort((a, b) => {
+      if ((b.directoryScore || 0) !== (a.directoryScore || 0)) {
+        return (b.directoryScore || 0) - (a.directoryScore || 0);
+      }
+      return (a.rankPosition || 0) - (b.rankPosition || 0);
+    });
+
+    console.log("Top directory candidates");
+    console.table(
+      discovery.results.slice(0, 50).map(x => ({
+        url: x.url,
+        score: x.directoryScore
+      }))
+    );
+
     logger.info(`Selected provider: ${discovery.provider}`);
     logger.info(`Search queries: ${discovery.queries.join(" | ")}`);
+    console.log(`URLs discovered: ${discovery.results.length}`);
     console.log(`URLs discovered: ${discovery.results.length}`);
     console.log(`Discovered websites: ${discovery.results.length} using ${discovery.provider} provider`);
     console.log(`URLs discovered: ${discovery.results.map((item) => item.url).join(" | ")}`);
@@ -353,6 +550,7 @@ export async function runDiscoveryPipeline(
       completedAt: formatDateSafe(new Date()),
     };
   }
+  
   console.log("Discovered websites:", discovery.results.length);
 
   // ── Steps 2–6: Process URLs with throttled concurrency mapping ──────────────────
@@ -384,8 +582,9 @@ export async function runDiscoveryPipeline(
     logger.info(`Browser closed`);
   }
 
-  const successful = rawResults.filter(r => r !== null);
-  console.log(`URLs after crawl: ${successful.length}`);
+  const successful = rawResults.filter((r) => r !== null);
+  console.log(`URLs after filtering: ${successful.length}`);
+  console.log(`URLs removed: ${discovery.results.length - successful.length}`);
 
   const processedCount = rawResults.filter(r => r !== null).length;
   console.log(`URLs after classification: ${processedCount}`);
@@ -393,8 +592,52 @@ export async function runDiscoveryPipeline(
   // The filtering for self-submission, agencies, and blogs is now done in processUrl.
   // Here we just sort the successful results.
   successful.sort((a, b) => {
-    // Prioritize by DA for now, more complex ranking can be added later
-    return b.domainAuthority - a.domainAuthority; 
+    // 1. Industry-specific directories
+    const aIndustry =
+      a.matchReason === "Industry tag" ||
+      a.category === keyword;
+
+    const bIndustry =
+      b.matchReason === "Industry tag" ||
+      b.category === keyword;
+
+    if (aIndustry && !bIndustry) return -1;
+    if (!aIndustry && bIndustry) return 1;
+
+    // 2. Aggregators
+    const aAggregator = a.isAggregator;
+    const bAggregator = b.isAggregator;
+
+    if (aAggregator && !bAggregator) return -1;
+    if (!aAggregator && bAggregator) return 1;
+
+    // 3. Citation score
+    if (b.citationScore !== a.citationScore) {
+      return b.citationScore - a.citationScore;
+    }
+
+    // 4. Direct submission URL
+    if (a.submissionUrl && !b.submissionUrl) return -1;
+    if (!a.submissionUrl && b.submissionUrl) return 1;
+
+    // 5. DA tie-breaker
+    return b.domainAuthority - a.domainAuthority;
+  });
+
+  // Audit Log: Classify top 20 passing URLs
+  console.log("=== Ranking Breakdown ===");
+
+  successful.slice(0, 20).forEach((r, i) => {
+    console.log({
+      rank: i + 1,
+      url: r.url,
+      industry: r.category,
+      citationScore: r.citationScore,
+      aggregator: r.isAggregator,
+      submissionUrl: !!r.submissionUrl,
+      da: r.domainAuthority,
+      reason: r.matchReason
+    });
   });
 
   logger.info(`Crawled websites — ${successful.length}/${discovery.results.length}`);

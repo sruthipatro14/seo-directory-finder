@@ -27,6 +27,7 @@ export interface DiscoveryResult {
   type?: "listingOpportunity";
   rankPosition?: number;
   sourceProvider?: string;
+  directoryScore?: number;
 }
 
 export interface DiscoveryResponse {
@@ -59,12 +60,23 @@ export interface DiscoveryProvider {
 export function generateQueries(keyword: string): string[] {
   const k = keyword.trim().toLowerCase();
 
-  // Always generate queries for directory/listing opportunities
   return [
-    `best ${k} business directories`,
-    `${k} directory submit listing`,
-    `top high da ${k} listing sites`,
-    `free business directories for ${k}`
+    // Directory-focused queries
+    `${k} business directory`,
+    `${k} citation sites`,
+    `${k} directory listing`,
+    `${k} submit business listing`,
+    `${k} add business directory`,
+    `${k} local business directory`,
+    `${k} business listings`,
+    `${k} company directory`,
+    `${k} get listed`,
+    // Generic citation queries
+    "business directory submit listing",
+    "add business listing",
+    "free business directory",
+    "claim business listing",
+    "business citation sites"
   ];
 }
 
@@ -121,15 +133,12 @@ export function shouldExcludeUrl(urlStr: string): boolean {
     const host = url.hostname.toLowerCase();
     
     const excludePatterns = [
-      "facebook.com",
       "instagram.com",
-      "linkedin.com",
       "wikipedia.org",
       "twitter.com",
       "x.com",
       "youtube.com",
       "pinterest.com",
-      "foursquare.com",
       "medium.com",
       "blogspot.com",
       "wordpress.com",
@@ -142,9 +151,7 @@ export function shouldExcludeUrl(urlStr: string): boolean {
       "duckduckgo.com",
       "startpage.com",
       "brave.com",
-      "superpages.com",
       "angis.com",
-      "chamberofcommerce.com",
       "bizjournals.com",
       "bloomberg.com",
       "nytimes.com",
@@ -160,38 +167,51 @@ export function shouldExcludeUrl(urlStr: string): boolean {
   }
 }
 
-export function rateUrlPriority(urlStr: string): number {
+/**
+ * Scores a URL candidate based on directory-specific keywords and aggregator status.
+ */
+export function scoreDirectoryCandidate(urlStr: string): number {
   try {
     const url = new URL(urlStr);
-    let score = 100;
-    
-    // De-prioritize paths that look like listings, categories, or deep directories
+    const host = url.hostname.toLowerCase();
     const path = url.pathname.toLowerCase();
-
-    // 1. Penalize Blogs/Articles/Informational content (Requirement 1 & 4)
-    const blogPatterns = ["/blog", "/article", "/news", "/guide", "/resource", "/wiki", "/help", "/docs", "/press", "/insights"];
-    if (blogPatterns.some(p => path.includes(p))) {
-      // Removed negative scoring that caused zero results
-    }
-
-    // 1.5 Prioritize Directory and Listing patterns (Requirement 5)
-    const directoryPatterns = [
-      "directory", "listings", "yellowpages", "localbusiness", "business-listing", 
-      "fyple", "tupalo", "citation", "business-directory", "practo", "justdial", 
-      "sulekha", "asklaila", "indiacom", "brownbook", "yellowbot", "cylex", "kompass",
-      "healthgrades", "zocdoc", "avvo", "clutch", "g2"
+    let score = 0;
+    
+    const directoryKeywords = [
+      "directory", "listing", "listings", "business", "citation",
+      "yellowpages", "yelp", "hotfrog", "brownbook", "cylex",
+      "kompass", "infobel", "showmelocal", "merchantcircle",
+      "foursquare", "trustpilot"
     ];
-    if (directoryPatterns.some(p => url.hostname.toLowerCase().includes(p) || path.includes(p))) {
+
+    const aggregators = [
+      "yelp.com", "facebook.com", "linkedin.com", "trustpilot.com",
+      "foursquare.com", "brownbook.net", "hotfrog.com", "cylex.us",
+      "infobel.com", "kompass.com"
+    ];
+
+    // Directory-domain boosting
+    if (directoryKeywords.some(kw => host.includes(kw) || path.includes(kw))) {
       score += 150;
     }
 
-    if (path.includes("/category/") || path.includes("/tag/") || path.includes("/search/") || path.includes("/directory/") || path.includes("/listing/")) {
-      score += 60; // Directories often use these patterns
+    // Aggregator bonus
+    if (aggregators.some(agg => host.endsWith(agg) || host === agg)) {
+      score += 100;
     }
 
+    // Penalize individual business websites (shallow paths with no directory keywords)
     const pathSegments = path.split("/").filter(Boolean);
-    if (pathSegments.length === 0 && !directoryPatterns.some(p => url.hostname.includes(p))) {
-      score -= 100; // Penalize individual business websites (Requirement 4)
+
+    // Platform profile detection (e.g., individual Facebook pages vs. directory portals)
+    const platformHosts = ["facebook.com", "linkedin.com", "foursquare.com", "instagram.com", "twitter.com", "x.com"];
+    const isPlatform = platformHosts.some(p => host === p || host.endsWith("." + p));
+    if (isPlatform && pathSegments.length > 0 && !directoryKeywords.some(kw => path.includes(kw))) {
+      score -= 150; // Heavily penalize specific profiles while sparing directory landing pages
+    }
+
+    if (pathSegments.length === 0 && !directoryKeywords.some(kw => host.includes(kw))) {
+      score -= 50;
     }
     
     return score;
@@ -509,7 +529,7 @@ class DirectoryFallbackProvider implements DiscoveryProvider {
     await context.close().catch(() => {});
 
     // Prioritize results: official websites, business domains
-    allResults.sort((a, b) => rateUrlPriority(b.url) - rateUrlPriority(a.url));
+    allResults.sort((a, b) => scoreDirectoryCandidate(b.url) - scoreDirectoryCandidate(a.url));
 
     console.log(`[DirectoryFallbackProvider] Total unique URLs extracted: ${allResults.length}`);
 
@@ -803,10 +823,16 @@ export async function discoverWebsites(
     }
   });
 
-  // Requirement 3: Rank results
+  // Rank results based on directory score and search rank
+  const resultsWithScores = results.map((r, i) => ({
+    ...r,
+    directoryScore: scoreDirectoryCandidate(r.url),
+    originalRank: i
+  }));
+
   results.sort((a, b) => {
-    const scoreA = rateUrlPriority(a.url) + calculateResultSignals(a);
-    const scoreB = rateUrlPriority(b.url) + calculateResultSignals(b);
+    const scoreA = scoreDirectoryCandidate(a.url) + calculateResultSignals(a);
+    const scoreB = scoreDirectoryCandidate(b.url) + calculateResultSignals(b);
     return scoreB - scoreA;
   });
 
