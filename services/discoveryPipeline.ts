@@ -49,6 +49,7 @@ export interface PipelineResult {
   matchReason: string; // New field for Stage 5
   citationScore: number;
   isAggregator: boolean;
+  requiresVpn: boolean;
 }
 
 export interface PipelineOptions {
@@ -141,6 +142,46 @@ async function processUrl(
 
   logger.info(`  Crawled — title: "${crawl.title}"`);
 
+  // ── Blocked/geo-restricted site detection ─────────────────────────────────
+  // Reject pages that are geo-blocked, access-denied, or Cloudflare-challenged
+  // because they contain no usable content and would pollute the directory index.
+  // Cloudflare challenge pages are rejected because they indicate the crawler
+  // cannot access the real content. Geo-restricted sites are rejected because
+  // they are inaccessible to users outside the restricted region.
+  const blockedIndicators = [
+    "access denied",
+    "forbidden",
+    "geo restriction",
+    "not available in your country",
+    "service unavailable in your location",
+    "blocked",
+    "cloudflare challenge",
+    "cloudflare verification",
+    "verify you are human",
+    "attention required",
+    "temporarily unavailable",
+    "restricted access",
+  ];
+
+  const pageContent = [
+    crawl.title || "",
+    crawl.description || "",
+    crawl.homepageText || "",
+  ].join(" ").toLowerCase();
+
+  const isBlockedSite = blockedIndicators.some(indicator =>
+    pageContent.includes(indicator)
+  );
+
+  // Flag geo-restricted/blocked sites but keep them — they may still be valid
+  // citation directories (e.g. manta.com, angi.com) that are simply inaccessible
+  // from the current region. A small citationScore penalty is applied later.
+  let requiresVpn = false;
+  if (isBlockedSite) {
+    requiresVpn = true;
+    logger.info(`[Pipeline] Site may require VPN or be geo-restricted: ${discoveredUrl}`);
+  }
+
   // ── Step 3: Free listing detection (already in CrawlResult) ───────────────
   const canSubmitListing = crawl.canSubmitListing;
   const freeListing = crawl.freeListing ?? false;
@@ -155,13 +196,28 @@ async function processUrl(
   }
 
   // ── Stage 5: Self-Submission Directory Filter ──────────────────────────────
-  const signalText = [
-    crawl.title || discoveredTitle,
-    crawl.description || "",
-    crawl.homepageText || "",
-    (crawl.links || []).join(" "),
-    discoveredUrl,
-  ].join(" ").toLowerCase();
+
+  const domain = new URL(discoveredUrl).hostname.toLowerCase();
+  const urlLower = discoveredUrl.toLowerCase();
+  const titleLower = (crawl.title || discoveredTitle).toLowerCase();
+
+  const excludedDomains = [
+    "thryv.com",
+    "justduckydigital.com",
+    "thm2g.com",
+    "truwayz.com",
+    "citationforge.com",
+    "iimskills.com",
+    "saertechnologies.com",
+    "tendtoread.com",
+    "springssmallbusinessmarketing.com",
+  ];
+
+  // Skip known excluded domains before any scoring
+  if (excludedDomains.some(d => domain.includes(d))) {
+    logger.info(`Skipping recommendation site: ${domain}`);
+    return null;
+  }
 
   const positiveSignalList = [
     "add business", "submit listing", "submit business", "claim listing", "claim business",
@@ -178,141 +234,148 @@ async function processUrl(
     "signup", "advertise", "get-listed"
   ];
 
- const serviceKeywords = [
-  "citation service",
-  "citation builder",
-  "local seo",
-  "seo agency",
-  "marketing agency",
-  "backlink service",
-  "citation campaign",
-  "citation management",
-  "seo services",
-  "digital marketing",
-  "best citation sites",
-  "top citation sites",
-  "citation list",
-  "directory submission services",
-];
-  const domain = new URL(discoveredUrl).hostname.toLowerCase();
-  
-  const urlLower = discoveredUrl.toLowerCase();
-  const titleLower = (crawl.title || discoveredTitle).toLowerCase();
-  
-  const excludedDomains = [
-  "thryv.com",
-  "justduckydigital.com",
-  "thm2g.com",
-  "truwayz.com",
-  "citationforge.com",
-  "iimskills.com",
-  "saertechnologies.com",
-  "tendtoread.com",
-  "springssmallbusinessmarketing.com",
-];
+  const serviceKeywords = [
+    "citation service",
+    "citation builder",
+    "local seo",
+    "seo agency",
+    "marketing agency",
+    "backlink service",
+    "citation campaign",
+    "citation management",
+    "seo services",
+    "digital marketing",
+    "best citation sites",
+    "top citation sites",
+    "citation list",
+    "directory submission services",
+  ];
 
+  // 1. Build signalText first — used by both directoryScore and downstream checks
+  const signalText = [
+    crawl.title || discoveredTitle,
+    crawl.description || "",
+    crawl.homepageText || "",
+    (crawl.links || []).join(" "),
+    discoveredUrl,
+  ].join(" ").toLowerCase();
 
-if (excludedDomains.some(d => domain.includes(d))) {
-  logger.info(`Skipping excluded domain: ${domain}`);
-  return null;
-}
-const agencyIndicators = [
-  "marketing",
-  "seo",
-  "digital agency",
-  "advertising",
-  "lead generation",
-  "web design",
-  "branding",
-  "consulting",
-  "business growth",
-  "local seo"
-];
+  // 2. Calculate directoryScore BEFORE agencyScore (agencyScore references it)
+  const directorySignals = [
+    "business directory",
+    "directory listing",
+    "add business",
+    "submit listing",
+    "claim listing",
+    "claim business",
+    "business profile",
+    "company profile",
+    "get listed",
+    "join directory",
+    "list your business",
+    "add company",
+    "register business",
+  ];
 
-const pageText = [
-  titleLower,
-  crawl.description?.toLowerCase() || "",
-  crawl.homepageText?.toLowerCase().slice(0, 5000) || ""
-].join(" ");
+  const urlSignals = [
+    "/business", "/businesses", "/directory", "/directories",
+    "/listing", "/listings", "/companies", "/company",
+    "/profile", "/profiles", "/category", "/categories",
+  ];
 
-if (agencyIndicators.some(x => pageText.includes(x))) {
-  logger.info(`Skipping agency site: ${domain}`);
-  return null;
-}
+  let directoryScore = 0;
+  directorySignals.forEach(signal => { if (signalText.includes(signal)) directoryScore += 5; });
+  urlSignals.forEach(signal => { if (urlLower.includes(signal)) directoryScore += 3; });
+  if (domain.includes("directory")) directoryScore += 10;
+  if (domain.includes("listing"))   directoryScore += 10;
+  if (domain.includes("business"))  directoryScore += 5;
 
-  // Recommendation/article sites to exclude
+  // 3. Calculate agencyScore AFTER directoryScore is available
+  const agencyIndicators = [
+    "marketing",
+    "seo",
+    "digital agency",
+    "advertising",
+    "lead generation",
+    "web design",
+    "branding",
+    "consulting",
+    "business growth",
+    "local seo",
+  ];
 
+  const pageText = [
+    titleLower,
+    crawl.description?.toLowerCase() || "",
+    crawl.homepageText?.toLowerCase().slice(0, 5000) || "",
+  ].join(" ");
 
-const directorySignals = [
-  "business directory",
-  "directory listing",
-  "add business",
-  "submit listing",
-  "claim listing",
-  "claim business",
-  "business profile",
-  "company profile"
-];
+  let agencyScore = 0;
+  agencyIndicators.forEach(kw => { if (pageText.includes(kw)) agencyScore += 3; });
 
-const looksLikeDirectory =
-  directorySignals.some(x => signalText.includes(x));
+  // 4. Evaluate isAgency only after both scores are available
+  const isAgency = agencyScore >= 10 && directoryScore < 5;
+  if (isAgency) {
+    logger.info(`Skipping agency site: ${domain}`);
+    return null;
+  }
 
-if (!looksLikeDirectory) {
-  logger.info(`Skipping non-directory site: ${domain}`);
-  return null;
-}
+  // 5. Reject non-directory sites
+  const looksLikeDirectory = directorySignals.some(x => signalText.includes(x));
+  if (!looksLikeDirectory) {
+    logger.info(`Skipping non-directory site: ${domain}`);
+    return null;
+  }
 
-// Skip known recommendation sites
-if (excludedDomains.some(d => domain.includes(d))) {
-  logger.info(`Skipping recommendation site: ${domain}`);
-  return null;
-}
-
-// Article/listicle indicators
-const articleIndicators = [
-  "best citation sites",
-  "top citation sites",
-  "citation sites list",
-  "directory list",
-  "local citation sites",
-  "citation websites",
-  "business directories list",
-  "top business directories",
-];
-
-// Skip list articles
-if (articleIndicators.some(x => titleLower.includes(x))) {
-  logger.info(`Skipping article page: ${titleLower}`);
-  return null;
-}
+  // 6. Skip article/listicle pages
+  const articleIndicators = [
+    "best citation sites",
+    "top citation sites",
+    "citation sites list",
+    "directory list",
+    "local citation sites",
+    "citation websites",
+    "business directories list",
+    "top business directories",
+  ];
+  if (articleIndicators.some(x => titleLower.includes(x))) {
+    logger.info(`Skipping article page: ${titleLower}`);
+    return null;
+  }
 
   const hasPositiveSignals = positiveSignalList.some(s => signalText.includes(s));
   const hasSubmissionLink = (crawl.links || []).some(link =>
     submissionPatterns.some(pattern => link.toLowerCase().includes(pattern))
   );
 
-  const isAgencyOrService = serviceKeywords.some(kw => domain.includes(kw) || titleLower.includes(kw));
+  const isAgencyOrService = serviceKeywords.some(kw => signalText.includes(kw));
 
   const isGuideOrArticle =
-  urlLower.includes("/blog/") ||
-  urlLower.includes("/article/") ||
-  urlLower.includes("/articles/") ||
-  urlLower.includes("/news/") ||
-  urlLower.includes("/guides/") ||
-  urlLower.includes("/resources/") ||
-  urlLower.includes("/top-") ||
-  urlLower.includes("/best-") ||
-  urlLower.includes("/list-") ||
-  urlLower.includes("/citation-sites");
+    urlLower.includes("/blog/") ||
+    urlLower.includes("/article/") ||
+    urlLower.includes("/articles/") ||
+    urlLower.includes("/news/") ||
+    urlLower.includes("/guides/") ||
+    urlLower.includes("/resources/") ||
+    urlLower.includes("/top-") ||
+    urlLower.includes("/best-") ||
+    urlLower.includes("/list-") ||
+    urlLower.includes("/citation-sites");
+
+  if (isAgencyOrService) {
+    logger.info(`Skipping agency/service site`);
+    return null;
+  }
+
+  if (isGuideOrArticle) {
+    logger.info(`Skipping guide/article`);
+    return null;
+  }
 
   let supportsSelfSubmission = false;
   let matchReason = "Not classified";
 
-  if (isAgencyOrService) {
-    matchReason = "Removed: SEO Agency/Service";
-  } else if (isGuideOrArticle) {
-    matchReason = "Removed: Blog/Article/Guide";
-  } else if (hasPositiveSignals || hasSubmissionLink) {
+  if (hasPositiveSignals || hasSubmissionLink) {
     supportsSelfSubmission = true;
     matchReason = hasSubmissionLink
       ? "Submission link detected"
@@ -329,25 +392,24 @@ if (articleIndicators.some(x => titleLower.includes(x))) {
     "bbb.org",
     "yellowpages.com",
     "foursquare.com",
-    "mapquest.com"
+    "mapquest.com",
   ];
 
-  const isAggregator = aggregatorDomains.some(d =>
-    domain.includes(d)
-  );
+  const isAggregator = aggregatorDomains.some(d => domain.includes(d));
 
   let citationScore = 0;
-  if (hasPositiveSignals) citationScore += 5;
-  if (hasSubmissionLink) citationScore += 5;
-  if (submissionUrl) citationScore += 10;
+  if (hasPositiveSignals)    citationScore += 5;
+  if (hasSubmissionLink)     citationScore += 5;
+  if (submissionUrl)         citationScore += 10;
   if (supportsSelfSubmission) citationScore += 10;
-
   if (domain.includes("directory")) citationScore += 3;
-  if (domain.includes("listing")) citationScore += 3;
-  if (domain.includes("business")) citationScore += 2;
-
-  if (isAggregator) {
-    citationScore += 8;
+  if (domain.includes("listing"))   citationScore += 3;
+  if (domain.includes("business"))  citationScore += 2;
+  if (isAggregator)          citationScore += 8;
+  // Penalise sites that appear geo-restricted — still valid, just harder to access
+  if (requiresVpn) {
+    citationScore -= 5;
+    matchReason = "Directory accessible via VPN";
   }
 
   console.log({
@@ -362,11 +424,6 @@ if (articleIndicators.some(x => titleLower.includes(x))) {
   console.log(
     `[Stage5] ${discoveredUrl} | positive=${hasPositiveSignals} | agency=${isAgencyOrService} | guide=${isGuideOrArticle} | result=${supportsSelfSubmission}`
   );
-
-  if (!supportsSelfSubmission) {
-    logger.info(`  Skipping URL: ${discoveredUrl} - ${matchReason}`);
-    return null; // Filter out non-self-submission, agency, or guide sites early
-  }
 
   // ── Step 4: Classify industry ──────────────────────────────────────────────
   const classificationText = [
@@ -467,7 +524,8 @@ if (articleIndicators.some(x => titleLower.includes(x))) {
     supportsSelfSubmission,
     matchReason,
     citationScore,
-    isAggregator
+    isAggregator,
+    requiresVpn,
   };
 }
 
